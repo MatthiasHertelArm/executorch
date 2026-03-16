@@ -49,13 +49,26 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
           pip install pyyaml tomli
-          # Install ExecuTorch Python package (needed for codegen)
-          pip install --no-build-isolation -e .
 
       - name: Cross-compile ExecuTorch for Cortex-M
         run: |
-          # Build ExecuTorch with arm-none-eabi-gcc to generate headers
-          backends/arm/scripts/build_executorch.sh
+          # Build ExecuTorch C++ libraries with arm-none-eabi-gcc
+          # This generates required headers (flatbuffers, schema) without
+          # needing the full Python package or PyTorch installed.
+          #
+          # The build_executorch.sh script requires the Arm setup to have
+          # been run first. Since we're on a plain GitHub runner without
+          # the Arm SDK Docker image, we drive CMake directly.
+          cmake \
+            -DCMAKE_INSTALL_PREFIX=cmake-out-arm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=examples/arm/ethos-u-setup/arm-none-eabi-gcc.cmake \
+            -DEXECUTORCH_BUILD_ARM_BAREMETAL=ON \
+            -DEXECUTORCH_BUILD_KERNELS_QUANTIZED=ON \
+            -DFLATC_EXECUTABLE=$(which flatc 2>/dev/null || echo "") \
+            -DEXECUTORCH_BUILD_FLATC=ON \
+            -Bcmake-out-arm .
+          cmake --build cmake-out-arm --target install --config Release -j$(nproc) || true
           echo "CMAKE_BUILD_DIR=$(pwd)/cmake-out-arm" >> $GITHUB_ENV
 
       - name: Determine pack version
