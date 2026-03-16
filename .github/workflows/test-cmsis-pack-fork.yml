@@ -1,0 +1,113 @@
+# Copyright 2026 Arm Limited and/or its affiliates.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+#
+# Fork-compatible workflow for testing the CMSIS Pack build.
+# Uses GitHub-hosted runners (no pytorch/test-infra dependency).
+# This file is NOT intended for upstream — use build-cmsis-pack.yml instead.
+
+name: Test CMSIS Pack (Fork)
+
+on:
+  push:
+    branches:
+      - arm/cmsis-pack-integration
+    paths:
+      - .github/workflows/test-cmsis-pack-fork.yml
+      - backends/arm/cmsis_pack/**
+  pull_request:
+    paths:
+      - .github/workflows/test-cmsis-pack-fork.yml
+      - backends/arm/cmsis_pack/**
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build-cmsis-pack:
+    name: build-cmsis-pack
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-none-eabi \
+            cmake \
+            ninja-build \
+            zlib1g-dev
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install pyyaml tomli
+          # Install ExecuTorch Python package (needed for codegen)
+          pip install --no-build-isolation -e .
+
+      - name: Cross-compile ExecuTorch for Cortex-M
+        run: |
+          # Build ExecuTorch with arm-none-eabi-gcc to generate headers
+          backends/arm/scripts/build_executorch.sh
+          echo "CMAKE_BUILD_DIR=$(pwd)/cmake-out-arm" >> $GITHUB_ENV
+
+      - name: Determine pack version
+        run: |
+          PACK_VERSION="$(cat version.txt | sed 's/a0$//')-dev"
+          echo "Pack version: ${PACK_VERSION}"
+          echo "PACK_VERSION=${PACK_VERSION}" >> $GITHUB_ENV
+
+      - name: Build CMSIS Pack
+        run: |
+          backends/arm/cmsis_pack/scripts/build_pack.sh \
+            --executorch-root "$(pwd)" \
+            --build-dir "${CMAKE_BUILD_DIR}" \
+            --version "${PACK_VERSION}" \
+            --output-dir "$(pwd)/pack-output"
+
+      - name: Validate pack
+        run: |
+          PACK_FILE=$(ls pack-output/*.pack 2>/dev/null | head -1)
+          if [[ -z "${PACK_FILE}" ]]; then
+            echo "ERROR: No .pack file found"
+            exit 1
+          fi
+          echo "Pack file: ${PACK_FILE}"
+          echo "Pack size: $(du -h "${PACK_FILE}" | cut -f1)"
+
+          python3 -c "
+          import zipfile
+          with zipfile.ZipFile('${PACK_FILE}', 'r') as z:
+              names = z.namelist()
+              assert any(n.endswith('.pdsc') for n in names), 'No PDSC file'
+              assert any('runtime' in n for n in names), 'No runtime sources'
+              assert any('RegisterAllKernels' in n for n in names), 'No RegisterAllKernels.cpp'
+              print(f'Pack contains {len(names)} files')
+              pdsc = [n for n in names if n.endswith('.pdsc')][0]
+              content = z.read(pdsc).decode()
+              op_count = content.count('Csub=\"Operators Portable')
+              q_count = content.count('Csub=\"Operators Quantized')
+              print(f'Portable operator components: {op_count}')
+              print(f'Quantized operator components: {q_count}')
+          print('Validation passed')
+          "
+
+      - name: Upload pack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmsis-pack-test
+          path: pack-output/*.pack
+          retention-days: 7
