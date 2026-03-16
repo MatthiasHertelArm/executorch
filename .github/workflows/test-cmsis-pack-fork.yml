@@ -13,13 +13,7 @@ on:
   push:
     branches:
       - arm/cmsis-pack-integration
-    paths:
-      - .github/workflows/test-cmsis-pack-fork.yml
-      - backends/arm/cmsis_pack/**
-  pull_request:
-    paths:
-      - .github/workflows/test-cmsis-pack-fork.yml
-      - backends/arm/cmsis_pack/**
+      - arm/cmsis-pack-fork-ci
   workflow_dispatch:
 
 concurrency:
