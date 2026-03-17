@@ -94,21 +94,24 @@ jobs:
           fi
           echo "Pack file: ${PACK_FILE}"
           echo "Pack size: $(du -h "${PACK_FILE}" | cut -f1)"
-
+          export PACK_FILE
           python3 -c "
-          import zipfile
-          with zipfile.ZipFile('${PACK_FILE}', 'r') as z:
+          import os, zipfile
+          pf = os.environ['PACK_FILE']
+          with zipfile.ZipFile(pf, 'r') as z:
               names = z.namelist()
-              assert any(n.endswith('.pdsc') for n in names), 'No PDSC file'
-              assert any('runtime' in n for n in names), 'No runtime sources'
-              assert any('RegisterAllKernels' in n for n in names), 'No RegisterAllKernels.cpp'
+              assert any(n.endswith('.pdsc') for n in names), 'No PDSC'
+              assert any('runtime' in n for n in names), 'No runtime'
+              assert any('RegisterAllKernels' in n for n in names), 'No RegAll'
               print(f'Pack contains {len(names)} files')
               pdsc = [n for n in names if n.endswith('.pdsc')][0]
-              content = z.read(pdsc).decode()
-              op_count = content.count('Csub="Portable')
-              q_count = content.count('Csub="Quantized')
-              print(f'Portable operator components: {op_count}')
-              print(f'Quantized operator components: {q_count}')
+              ct = z.read(pdsc).decode()
+              op_c = ct.count('Cgroup=' + chr(34) + 'ExecuTorch Operators' + chr(34))
+              p_c = ct.count('Csub=' + chr(34) + 'Portable ')
+              q_c = ct.count('Csub=' + chr(34) + 'Quantized ')
+              print(f'Operator components total: {op_c}')
+              print(f'  Portable: {p_c}')
+              print(f'  Quantized: {q_c}')
           print('Validation passed')
           "
 
