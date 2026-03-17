@@ -105,8 +105,8 @@ jobs:
               print(f'Pack contains {len(names)} files')
               pdsc = [n for n in names if n.endswith('.pdsc')][0]
               content = z.read(pdsc).decode()
-              op_count = content.count('Csub=\"Operators Portable')
-              q_count = content.count('Csub=\"Operators Quantized')
+              op_count = content.count('Csub="Portable')
+              q_count = content.count('Csub="Quantized')
               print(f'Portable operator components: {op_count}')
               print(f'Quantized operator components: {q_count}')
           print('Validation passed')
