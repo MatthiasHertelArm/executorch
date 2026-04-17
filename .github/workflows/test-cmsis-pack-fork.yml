@@ -73,13 +73,13 @@ jobs:
 
       - name: Determine pack version
         run: |
-          PACK_VERSION="$(cat version.txt | sed 's/a0$//')-dev"
+          PACK_VERSION="$(cat version.txt | sed 's/a0$//')-nightly-$(date -u +%Y%m%d)"
           echo "Pack version: ${PACK_VERSION}"
           echo "PACK_VERSION=${PACK_VERSION}" >> $GITHUB_ENV
 
       - name: Build CMSIS Pack
         run: |
-          backends/arm/cmsis_pack/scripts/build_pack.sh \
+          backends/arm/scripts/cmsis_pack/build_pack.sh \
             --executorch-root "$(pwd)" \
             --build-dir "${CMAKE_BUILD_DIR}" \
             --version "${PACK_VERSION}" \
