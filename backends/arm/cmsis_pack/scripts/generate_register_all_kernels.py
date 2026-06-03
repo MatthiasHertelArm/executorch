@@ -628,10 +628,13 @@ def generate_param_unpack(  # noqa: C901
     if "string_view" in t:
         return (f"            auto {name}_sv = {name}.toStringView();", f"{name}_sv")
 
-    # Fallback: try direct to<T>
-    return (
-        f"            // WARNING: auto-generated unpack for {t}\n            auto {name}_base = {name}.to<Tensor>();",
-        f"{name}_base",
+    # No fallback: unknown parameter types must add explicit handling.
+    # Emitting a default to<Tensor>() unpack here would compile but produce
+    # silently-wrong runtime behavior for non-Tensor types. Fail fast at
+    # generation time so new operator signatures get an explicit branch
+    # instead of shipping incorrect dispatch into RegisterAllKernels.cpp.
+    raise RuntimeError(
+        f"generate_param_unpack: unsupported parameter type {t!r} for {name!r}"
     )
 
 

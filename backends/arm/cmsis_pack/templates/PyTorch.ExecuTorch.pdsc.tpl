@@ -186,13 +186,4 @@
 
   </components>
 
-  <examples>
-    <example name="ExecuTorch Inference" doc="README.md" folder="examples/inference">
-      <description>Basic ExecuTorch inference example</description>
-      <project>
-        <environment name="csolution" load="inference.csolution.yml"/>
-      </project>
-    </example>
-  </examples>
-
 </package>
