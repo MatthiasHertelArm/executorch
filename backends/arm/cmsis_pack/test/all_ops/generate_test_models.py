@@ -45,10 +45,21 @@ class TensorSpec:
 
 
 def _save_tensor(t: torch.Tensor, path: Path) -> TensorSpec:
-    t = t.detach().contiguous().cpu()
-    path.write_bytes(t.numpy().tobytes())
+    src = t.detach().cpu()
+    # The firmware copies these bytes directly into ExecuTorch tensor storage.
+    # For channels_last tensors, that storage is NHWC even though the logical
+    # tensor shape remains NCHW.
+    if (
+        src.dim() == 4
+        and src.is_contiguous(memory_format=torch.channels_last)
+        and not src.is_contiguous()
+    ):
+        storage = src.permute(0, 2, 3, 1).contiguous()
+    else:
+        storage = src.contiguous()
+    path.write_bytes(storage.numpy().tobytes())
     return TensorSpec(
-        file=path.name, dtype=str(t.dtype).replace("torch.", ""), shape=list(t.shape)
+        file=path.name, dtype=str(src.dtype).replace("torch.", ""), shape=list(src.shape)
     )
 
 
@@ -63,7 +74,7 @@ def _flatten_outputs(out) -> list:
     raise TypeError(f"unsupported output type {type(out)}")
 
 
-def _export_portable(model: torch.nn.Module, inputs: tuple) -> bytes:
+def _export_portable(model: torch.nn.Module, inputs: tuple,recipe: op_recipes.Recipe, display_quantized_values: bool = False) -> tuple[bytes, float, float]:
     from executorch.exir import EdgeCompileConfig, to_edge
 
     model = model.eval()
@@ -73,30 +84,62 @@ def _export_portable(model: torch.nn.Module, inputs: tuple) -> bytes:
     # core-ATen IR validity gate; to_executorch still lowers to the .out kernels.
     edge = to_edge(exported, compile_config=EdgeCompileConfig(_check_ir_validity=False))
     program = edge.to_executorch()
-    return bytes(program.buffer)
+    return bytes(program.buffer), recipe.atol, recipe.rtol
 
+def _compute_test_threshold(actual, expected):
+    abs_err = (actual - expected).abs()
 
-def _export_cortex_m(model: torch.nn.Module, inputs: tuple) -> bytes:
+    atol = abs_err.max().item()
+    
+    # Avoid division by zero
+    mask = expected.abs() > 1e-12
+    if mask.any():
+        rtol = (abs_err[mask] / expected.abs()[mask]).max().item()
+    else:
+        rtol = 0.0
+    return atol, rtol
+
+def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.Recipe, display_quantized_values: bool = False) -> tuple[bytes, float, float]:
     from executorch.backends.cortex_m.passes.cortex_m_pass_manager import (
         CortexMPassManager,
     )
     from executorch.backends.cortex_m.quantizer.quantizer import CortexMQuantizer
     from executorch.exir import EdgeCompileConfig, to_edge_transform_and_lower
     from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+    from torchao.quantization.pt2e import move_exported_model_to_eval
+
 
     model = model.eval()
+    expected = model(*inputs)
     captured = torch.export.export(model, inputs, strict=True).module()
     prepared = prepare_pt2e(captured, CortexMQuantizer())
     prepared(*inputs)  # calibrate
     quantized = convert_pt2e(prepared)
+    quantized_ = move_exported_model_to_eval(quantized)
+    actual = quantized_(*inputs)
+    if display_quantized_values:
+        print("=== quantized values ===")
+        print("Expected:", expected)
+        print("Actual:", actual)
+    atol,rtol = _compute_test_threshold(actual, expected)
     exported = torch.export.export(quantized, inputs, strict=True)
     edge = to_edge_transform_and_lower(
-        exported, compile_config=EdgeCompileConfig(_check_ir_validity=False)
+        exported, compile_config=EdgeCompileConfig(
+                      preserve_ops=[
+                          torch.ops.aten.linear.default,
+                          torch.ops.aten.hardsigmoid.default,
+                          torch.ops.aten.hardsigmoid_.default,
+                          torch.ops.aten.hardswish.default,
+                          torch.ops.aten.hardswish_.default,
+                      ],
+                      _check_ir_validity=False,
+                      _core_aten_ops_exception_list=[torch.ops.aten.max_pool2d.default],
+                    )
     )
     edge._edge_programs["forward"] = CortexMPassManager(
         edge.exported_program()
     ).transform()
-    return bytes(edge.to_executorch().buffer)
+    return bytes(edge.to_executorch().buffer),atol,rtol
 
 
 def main() -> None:
@@ -116,6 +159,11 @@ def main() -> None:
         "--continue-on-error",
         action="store_true",
         help="record export failures and keep going instead of exiting non-zero",
+    )
+    parser.add_argument(
+        "--display-quantized-values",
+        action="store_true",
+        help="display quantized values during export",
     )
     args = parser.parse_args()
 
@@ -152,9 +200,11 @@ def main() -> None:
         cat_id = component.category.lower().replace("-", "_")
         op_dir = out_dir / f"{cat_id}__{component.name}"
         try:
+            if args.display_quantized_values:
+               print(f"=== exporting {component.category}/{component.name} ===")
             model, inputs = recipe.make()
             reference = model.eval()(*inputs)
-            pte = exporters[component.category](model, inputs)
+            pte,atol,rtol = exporters[component.category](model, inputs, recipe,display_quantized_values=args.display_quantized_values)
             op_dir.mkdir(parents=True, exist_ok=True)
             (op_dir / "model.pte").write_bytes(pte)
             in_specs = [
@@ -169,8 +219,8 @@ def main() -> None:
                     "op": component.name,
                     "category": component.category,
                     "dir": op_dir.name,
-                    "atol": recipe.atol,
-                    "rtol": recipe.rtol,
+                    "atol": atol,
+                    "rtol": rtol,
                     "inputs": [s.__dict__ for s in in_specs],
                     "outputs": [s.__dict__ for s in out_specs],
                 }
