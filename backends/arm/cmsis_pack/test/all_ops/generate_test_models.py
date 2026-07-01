@@ -115,8 +115,8 @@ def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.R
     prepared = prepare_pt2e(captured, CortexMQuantizer())
     prepared(*inputs)  # calibrate
     quantized = convert_pt2e(prepared)
-    quantized_ = move_exported_model_to_eval(quantized)
-    actual = quantized_(*inputs)
+    move_exported_model_to_eval(quantized)
+    actual = quantized(*inputs)
     if display_quantized_values:
         print("=== quantized values ===")
         print("Expected:", expected)
