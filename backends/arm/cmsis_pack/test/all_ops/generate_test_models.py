@@ -32,6 +32,7 @@ sys.path.insert(0, str(_HERE))
 sys.path.insert(0, str(_SCRIPTS))
 
 import op_recipes  # type: ignore[import-not-found]  # noqa: E402
+
 from op_guards import (  # type: ignore[import-not-found]  # noqa: E402
     discover_components,
 )
@@ -73,18 +74,49 @@ def _flatten_outputs(out) -> list:
         return flat
     raise TypeError(f"unsupported output type {type(out)}")
 
+def _get_number_of_outputs(outputs) -> int:
+    if isinstance(outputs, torch.Tensor):
+        return 1
+    elif isinstance(outputs, (tuple, list)):
+        return len(outputs)
+    else:
+        raise TypeError(f"unsupported output type {type(outputs)}")
 
-def _export_portable(model: torch.nn.Module, inputs: tuple,recipe: op_recipes.Recipe, display_quantized_values: bool = False) -> tuple[bytes, float, float]:
+
+def _mk_metadata(inputs: tuple, outputs: tuple | torch.Tensor, atol: float, rtol: float) -> dict:
+    metadata = {}
+    metadata["nb_inputs"] = len(inputs)
+    metadata["nb_outputs"] = _get_number_of_outputs(outputs)
+    metadata["atol"] = atol
+    metadata["rtol"] = rtol
+    
+    for i, t in enumerate(inputs):
+        metadata[f"input_{i}"] = t
+    if isinstance(outputs, torch.Tensor):
+        metadata["output_0"] = outputs
+    else:
+        for i,t in enumerate(outputs):
+           metadata[f"output_{i}"] = t
+    
+    return metadata
+
+def _export_portable(model: torch.nn.Module, inputs: tuple,recipe: op_recipes.Recipe, display_quantized_values: bool = False, display_metadata: bool = False) -> bytes:
     from executorch.exir import EdgeCompileConfig, to_edge
 
     model = model.eval()
     exported = torch.export.export(model, inputs, strict=True)
+    
+    expected = model(*inputs)
+    metadata = _mk_metadata(inputs, expected,recipe.atol, recipe.rtol)
+    if display_metadata:
+        print(metadata)
     # The pack ships the full portable op set, including ops outside the Core
     # ATen opset (bitwise shifts, unfold, var_mean.correction, ...), so skip the
     # core-ATen IR validity gate; to_executorch still lowers to the .out kernels.
-    edge = to_edge(exported, compile_config=EdgeCompileConfig(_check_ir_validity=False))
+    edge = to_edge(exported, compile_config=EdgeCompileConfig(_check_ir_validity=False),
+                   constant_methods=metadata)
     program = edge.to_executorch()
-    return bytes(program.buffer), recipe.atol, recipe.rtol
+    return bytes(program.buffer)
 
 def _compute_test_threshold(actual, expected):
     abs_err = (actual - expected).abs()
@@ -99,8 +131,8 @@ def _compute_test_threshold(actual, expected):
         rtol = 0.0
     return atol, rtol
 
-def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.Recipe, display_quantized_values: bool = False) -> tuple[bytes, float, float]:
-    from executorch.backends.cortex_m.passes.cortex_m_pass_manager import (
+def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.Recipe, display_quantized_values: bool = False, display_metadata: bool = False) -> bytes:
+    from debug_cortex_m.passes.cortex_m_pass_manager import (
         CortexMPassManager,
     )
     from executorch.backends.cortex_m.quantizer.quantizer import CortexMQuantizer
@@ -111,6 +143,7 @@ def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.R
 
     model = model.eval()
     expected = model(*inputs)
+
     captured = torch.export.export(model, inputs, strict=True).module()
     prepared = prepare_pt2e(captured, CortexMQuantizer())
     prepared(*inputs)  # calibrate
@@ -119,10 +152,16 @@ def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.R
     actual = quantized(*inputs)
     if display_quantized_values:
         print("=== quantized values ===")
-        print("Expected:", expected)
-        print("Actual:", actual)
+        print("Expected:", expected,expected.shape)
+        print("Actual:", actual,actual.shape)
     atol,rtol = _compute_test_threshold(actual, expected)
+    
+    metadata = _mk_metadata(inputs, expected,atol, rtol)
+    if display_metadata:
+       print(metadata)
+    
     exported = torch.export.export(quantized, inputs, strict=True)
+
     edge = to_edge_transform_and_lower(
         exported, compile_config=EdgeCompileConfig(
                       preserve_ops=[
@@ -134,12 +173,13 @@ def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.R
                       ],
                       _check_ir_validity=False,
                       _core_aten_ops_exception_list=[torch.ops.aten.max_pool2d.default],
-                    )
+                    ),
+        constant_methods=metadata
     )
     edge._edge_programs["forward"] = CortexMPassManager(
         edge.exported_program()
     ).transform()
-    return bytes(edge.to_executorch().buffer),atol,rtol
+    return bytes(edge.to_executorch().buffer)
 
 
 def main() -> None:
@@ -164,6 +204,11 @@ def main() -> None:
         "--display-quantized-values",
         action="store_true",
         help="display quantized values during export",
+    )
+    parser.add_argument(
+        "--display-metadata",
+        action="store_true",
+        help="display metadata during export",
     )
     args = parser.parse_args()
 
@@ -193,36 +238,30 @@ def main() -> None:
 
     for component in components:
         key = (component.category, component.name)
+        if component.name != "quantized_max_pool2d" and component.name != "quantized_conv2d" and component.name != "add":
+            skipped.append((component.category, component.name, "For debug"))
+            continue
+
         if key in op_recipes.SKIPS:
             skipped.append((component.category, component.name, op_recipes.SKIPS[key]))
             continue
         recipe = op_recipes.RECIPES[key]
         cat_id = component.category.lower().replace("-", "_")
-        op_dir = out_dir / f"{cat_id}__{component.name}"
+        op_name = out_dir / f"{cat_id}__{component.name}"
+        op_pte = op_name.with_suffix(".pte")
         try:
-            if args.display_quantized_values:
+            if args.display_quantized_values or args.display_metadata:
                print(f"=== exporting {component.category}/{component.name} ===")
             model, inputs = recipe.make()
-            reference = model.eval()(*inputs)
-            pte,atol,rtol = exporters[component.category](model, inputs, recipe,display_quantized_values=args.display_quantized_values)
-            op_dir.mkdir(parents=True, exist_ok=True)
-            (op_dir / "model.pte").write_bytes(pte)
-            in_specs = [
-                _save_tensor(t, op_dir / f"input_{i}.bin") for i, t in enumerate(inputs)
-            ]
-            out_specs = [
-                _save_tensor(t, op_dir / f"expected_{i}.bin")
-                for i, t in enumerate(_flatten_outputs(reference))
-            ]
+            
+            pte = exporters[component.category](model, inputs, recipe,display_quantized_values=args.display_quantized_values,display_metadata=args.display_metadata)
+            op_pte.write_bytes(pte)
+            
             manifest.append(
                 {
                     "op": component.name,
                     "category": component.category,
-                    "dir": op_dir.name,
-                    "atol": atol,
-                    "rtol": rtol,
-                    "inputs": [s.__dict__ for s in in_specs],
-                    "outputs": [s.__dict__ for s in out_specs],
+                    "name": op_name.name
                 }
             )
         except Exception as exc:  # noqa: BLE001 - report, don't abort the sweep

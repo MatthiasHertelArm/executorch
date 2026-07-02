@@ -55,14 +55,11 @@ class _Fn(torch.nn.Module):
         return self.fn(*args)
 
 
-def _ramp(lo: float, hi: float, shape: tuple, channel_last=False) -> torch.Tensor:
+def _ramp(lo: float, hi: float, shape: tuple) -> torch.Tensor:
     n = 1
     for s in shape:
         n *= s
-    if channel_last:
-       return torch.linspace(lo, hi, n).reshape(shape).contiguous(memory_format=torch.channels_last)
-    else:
-       return torch.linspace(lo, hi, n).reshape(shape)
+    return torch.linspace(lo, hi, n).reshape(shape)
 
 
 def _reg(category: str, name: str, make: Callable, **kw) -> None:
@@ -578,11 +575,11 @@ _cm(
 )
 _cm(
     "quantized_avg_pool2d",
-    lambda: (torch.nn.AvgPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8), channel_last=True),)),
+    lambda: (torch.nn.AvgPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8)))),
 )
 _cm(
     "quantized_max_pool2d",
-    lambda: (torch.nn.MaxPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8), channel_last=True),)),
+    lambda: (torch.nn.MaxPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8)),)),
 )
 _cm(
     "quantized_batch_matmul",
