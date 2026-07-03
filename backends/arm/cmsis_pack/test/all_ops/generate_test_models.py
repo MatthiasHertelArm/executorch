@@ -45,34 +45,6 @@ class TensorSpec:
     shape: list
 
 
-def _save_tensor(t: torch.Tensor, path: Path) -> TensorSpec:
-    src = t.detach().cpu()
-    # The firmware copies these bytes directly into ExecuTorch tensor storage.
-    # For channels_last tensors, that storage is NHWC even though the logical
-    # tensor shape remains NCHW.
-    if (
-        src.dim() == 4
-        and src.is_contiguous(memory_format=torch.channels_last)
-        and not src.is_contiguous()
-    ):
-        storage = src.permute(0, 2, 3, 1).contiguous()
-    else:
-        storage = src.contiguous()
-    path.write_bytes(storage.numpy().tobytes())
-    return TensorSpec(
-        file=path.name, dtype=str(src.dtype).replace("torch.", ""), shape=list(src.shape)
-    )
-
-
-def _flatten_outputs(out) -> list:
-    if isinstance(out, torch.Tensor):
-        return [out]
-    if isinstance(out, (tuple, list)):
-        flat = []
-        for o in out:
-            flat.extend(_flatten_outputs(o))
-        return flat
-    raise TypeError(f"unsupported output type {type(out)}")
 
 def _get_number_of_outputs(outputs) -> int:
     if isinstance(outputs, torch.Tensor):
@@ -90,13 +62,27 @@ def _mk_metadata(inputs: tuple, outputs: tuple | torch.Tensor, atol: float, rtol
     metadata["atol"] = atol
     metadata["rtol"] = rtol
     
+    channel_last = False 
+    # We assume that when one input tensor is channel_last, all others too
+    # This assumption is true for the operators tested
     for i, t in enumerate(inputs):
         metadata[f"input_{i}"] = t
+        if t.is_contiguous(memory_format=torch.channels_last):
+            channel_last = True
     if isinstance(outputs, torch.Tensor):
         metadata["output_0"] = outputs
     else:
         for i,t in enumerate(outputs):
            metadata[f"output_{i}"] = t
+
+    # Input / outputs are exported as channel_first.
+    # So we need to store the memory format information in the metadata so that
+    # we can change the input / output tensors to channel_last in the C++
+    # tests.
+    # It is a workaround for what looks like a bug in the to_edge_transform_and_lower 
+    # function, which does not preserve the memory format of the input / output tensors
+    # exported as constant_methods.
+    metadata["channel_last"] = channel_last
     
     return metadata
 
@@ -238,9 +224,9 @@ def main() -> None:
 
     for component in components:
         key = (component.category, component.name)
-        if component.name != "quantized_max_pool2d" and component.name != "quantized_conv2d" and component.name != "add":
-            skipped.append((component.category, component.name, "For debug"))
-            continue
+        #if component.name != "quantized_max_pool2d" and component.name != "quantized_conv2d" and component.name != "quantized_avg_pool2d":
+        #    skipped.append((component.category, component.name, "For debug"))
+        #    continue
 
         if key in op_recipes.SKIPS:
             skipped.append((component.category, component.name, op_recipes.SKIPS[key]))

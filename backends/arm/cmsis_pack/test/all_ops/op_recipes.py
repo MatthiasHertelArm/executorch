@@ -522,6 +522,16 @@ _portable(
 )
 
 
+# Use instead of torch.nn.Conv2d to set the weights
+class CortexMConv2D(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.conv = torch.nn.Conv2d(*args, **kwargs, bias=False)
+        self.conv.weight.data.fill_(1.0)
+
+    def forward(self, x):
+        return self.conv(x)
+
 # --------------------------------------------------------------------------
 # Cortex-M ops (quantized; exercised via the CortexM export flow). Inputs are
 # float; the CortexMQuantizer + passes lower them to cortex_m::* kernels.
@@ -563,7 +573,7 @@ _cm(
 )
 _cm(
     "quantized_conv2d",
-    lambda: (torch.nn.Conv2d(2, 3, 3), (_ramp(-1, 1, (1, 2, 8, 8)),)),
+    lambda: (CortexMConv2D(2, 4, 3), (_ramp(1, 5, (1, 2, 5, 5)).to(memory_format=torch.channels_last),)),
 )
 _cm(
     "quantized_depthwise_conv2d",
@@ -575,11 +585,11 @@ _cm(
 )
 _cm(
     "quantized_avg_pool2d",
-    lambda: (torch.nn.AvgPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8)))),
+    lambda: (torch.nn.AvgPool2d(kernel_size=2, stride=2), (_ramp(0, 15, (1, 1, 4, 4)),)),
 )
 _cm(
     "quantized_max_pool2d",
-    lambda: (torch.nn.MaxPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8)),)),
+    lambda: (torch.nn.MaxPool2d(kernel_size=2, stride=2), (_ramp(-50, 50, (1, 1, 6, 6)),)),
 )
 _cm(
     "quantized_batch_matmul",
