@@ -577,11 +577,11 @@ _cm(
 )
 _cm(
     "quantized_depthwise_conv2d",
-    lambda: (torch.nn.Conv2d(4, 4, 3, groups=4), (_ramp(-1, 1, (1, 4, 8, 8)),)),
+    lambda: (torch.nn.Conv2d(4, 4, 3, groups=4), (_ramp(1, 5, (1, 4, 8, 8)).to(memory_format=torch.channels_last),)),
 )
 _cm(
     "quantized_transpose_conv2d",
-    lambda: (torch.nn.ConvTranspose2d(2, 3, 3), (_ramp(-1, 1, (1, 2, 8, 8)),)),
+    lambda: (torch.nn.ConvTranspose2d(2, 4, 3), (_ramp(1, 5, (1, 2, 5, 5)).to(memory_format=torch.channels_last),)),
 )
 _cm(
     "quantized_avg_pool2d",

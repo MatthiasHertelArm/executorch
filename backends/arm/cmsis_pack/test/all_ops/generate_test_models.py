@@ -86,7 +86,7 @@ def _mk_metadata(inputs: tuple, outputs: tuple | torch.Tensor, atol: float, rtol
     
     return metadata
 
-def _export_portable(model: torch.nn.Module, inputs: tuple,recipe: op_recipes.Recipe, display_quantized_values: bool = False, display_metadata: bool = False) -> bytes:
+def _export_portable(model: torch.nn.Module, inputs: tuple,recipe: op_recipes.Recipe, display_quantized_values: bool = False, display_metadata: bool = False) -> ExecutorchProgramManager:
     from executorch.exir import EdgeCompileConfig, to_edge
 
     model = model.eval()
@@ -102,7 +102,7 @@ def _export_portable(model: torch.nn.Module, inputs: tuple,recipe: op_recipes.Re
     edge = to_edge(exported, compile_config=EdgeCompileConfig(_check_ir_validity=False),
                    constant_methods=metadata)
     program = edge.to_executorch()
-    return bytes(program.buffer)
+    return program
 
 def _compute_test_threshold(actual, expected):
     abs_err = (actual - expected).abs()
@@ -117,7 +117,7 @@ def _compute_test_threshold(actual, expected):
         rtol = 0.0
     return atol, rtol
 
-def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.Recipe, display_quantized_values: bool = False, display_metadata: bool = False) -> bytes:
+def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.Recipe, display_quantized_values: bool = False, display_metadata: bool = False) -> ExecutorchProgramManager:
     from debug_cortex_m.passes.cortex_m_pass_manager import (
         CortexMPassManager,
     )
@@ -165,7 +165,7 @@ def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.R
     edge._edge_programs["forward"] = CortexMPassManager(
         edge.exported_program()
     ).transform()
-    return bytes(edge.to_executorch().buffer)
+    return edge.to_executorch()
 
 
 def main() -> None:
@@ -196,6 +196,14 @@ def main() -> None:
         action="store_true",
         help="display metadata during export",
     )
+    # Model explorer (with pte extension) or Netron are not able to display
+    # all the .pte in the right way.
+    # So, another way to check is to print the final graph.
+    parser.add_argument(
+        "--display-graph",
+        action="store_true",
+        help="display graph during export",
+    )
     args = parser.parse_args()
 
     source_dir = Path(args.source_dir)
@@ -224,7 +232,8 @@ def main() -> None:
 
     for component in components:
         key = (component.category, component.name)
-        #if component.name != "quantized_max_pool2d" and component.name != "quantized_conv2d" and component.name != "quantized_avg_pool2d":
+        # For debugging. To select only the nodes under investigation
+        #if component.name != "convolution" and component.name != "embedding":
         #    skipped.append((component.category, component.name, "For debug"))
         #    continue
 
@@ -241,7 +250,10 @@ def main() -> None:
             model, inputs = recipe.make()
             
             pte = exporters[component.category](model, inputs, recipe,display_quantized_values=args.display_quantized_values,display_metadata=args.display_metadata)
-            op_pte.write_bytes(pte)
+            if args.display_graph:
+                _ = pte.exported_program("forward").graph_module.print_readable()
+
+            op_pte.write_bytes(bytes(pte.buffer))
             
             manifest.append(
                 {
