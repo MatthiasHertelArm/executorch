@@ -118,7 +118,7 @@ def _compute_test_threshold(actual, expected):
     return atol, rtol
 
 def _export_cortex_m(model: torch.nn.Module, inputs: tuple, recipe: op_recipes.Recipe, display_quantized_values: bool = False, display_metadata: bool = False) -> ExecutorchProgramManager:
-    from debug_cortex_m.passes.cortex_m_pass_manager import (
+    from executorch.backends.cortex_m.passes.cortex_m_pass_manager import (
         CortexMPassManager,
     )
     from executorch.backends.cortex_m.quantizer.quantizer import CortexMQuantizer
