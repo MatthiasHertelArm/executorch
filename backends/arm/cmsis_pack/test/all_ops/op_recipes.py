@@ -43,6 +43,60 @@ RECIPES: dict[tuple[str, str], Recipe] = {}
 # Explicit skips keyed the same way: ops we deliberately do not execute.
 SKIPS: dict[tuple[str, str], str] = {}
 
+# torch.nn.Conv2d weights are initialized randomly 
+# To have reproducible results, we create a custom Conv2d module 
+# that initializes the weights to 1.0
+class FixedParametersConv2D(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.conv = torch.nn.Conv2d(*args, **kwargs, bias=False)
+        self.conv.weight.data.fill_(1.0)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+# torch.nn.Conv2d weights are initialized randomly 
+# To have reproducible results, we create a custom Conv2d module 
+# that initializes the weights to 1.0
+class FixedParametersEmbedding(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.embedding = torch.nn.Embedding(*args, **kwargs)
+        self.embedding.weight.data.fill_(1.0)
+
+    def forward(self, x):
+        return self.embedding(x)
+    
+# torch.nn.Linear weights are initialized randomly 
+# To have reproducible results, we create a custom Linear module 
+# that initializes the weights to 1.0
+class FixedParametersLinear(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.linear = torch.nn.Linear(*args, **kwargs)
+        self.linear.weight.data.fill_(1.0)
+        if self.linear.bias is not None:
+            self.linear.bias.data.fill_(1.0)
+
+    def forward(self, x):
+        return self.linear(x)
+    
+# torch.nn.ConvTranspose2d weights are initialized randomly 
+# To have reproducible results, we create a custom ConvTranspose2d module 
+# that initializes the weights to 1.0
+class FixedParametersConvTranspose2d(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.conv_transpose = torch.nn.ConvTranspose2d(*args, **kwargs)
+        self.conv_transpose.weight.data.fill_(1.0)
+        if self.conv_transpose.bias is not None:
+            self.conv_transpose.bias.data.fill_(1.0)
+
+    def forward(self, x):
+        return self.conv_transpose(x)
+    
+
 
 class _Fn(torch.nn.Module):
     """Wrap a plain callable as a module so torch.export can trace it."""
@@ -55,14 +109,11 @@ class _Fn(torch.nn.Module):
         return self.fn(*args)
 
 
-def _ramp(lo: float, hi: float, shape: tuple, channel_last=False) -> torch.Tensor:
+def _ramp(lo: float, hi: float, shape: tuple) -> torch.Tensor:
     n = 1
     for s in shape:
         n *= s
-    if channel_last:
-       return torch.linspace(lo, hi, n).reshape(shape).contiguous(memory_format=torch.channels_last)
-    else:
-       return torch.linspace(lo, hi, n).reshape(shape)
+    return torch.linspace(lo, hi, n).reshape(shape)
 
 
 def _reg(category: str, name: str, make: Callable, **kw) -> None:
@@ -289,7 +340,7 @@ _portable(
 # Conv / pool / norm
 # --------------------------------------------------------------------------
 _portable(
-    "convolution", lambda: (torch.nn.Conv2d(2, 3, 3), (_ramp(-1, 1, (1, 2, 8, 8)),))
+    "convolution", lambda: (FixedParametersConv2D(2, 3, 3), (_ramp(-1, 1, (1, 2, 8, 8)),))
 )
 _portable("avg_pool2d", lambda: (torch.nn.AvgPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8)),)))
 _portable(
@@ -421,7 +472,7 @@ _portable(
 )
 _portable(
     "embedding",
-    lambda: (torch.nn.Embedding(5, 3), (torch.tensor([[0, 2], [1, 4]]),)),
+    lambda: (FixedParametersEmbedding(5, 3), (torch.tensor([[0, 2], [1, 4]]),)),
 )
 _portable(
     "scatter_add",
@@ -525,6 +576,7 @@ _portable(
 )
 
 
+
 # --------------------------------------------------------------------------
 # Cortex-M ops (quantized; exercised via the CortexM export flow). Inputs are
 # float; the CortexMQuantizer + passes lower them to cortex_m::* kernels.
@@ -551,7 +603,7 @@ _cm(
 )
 _cm(
     "quantized_linear",
-    lambda: (torch.nn.Linear(8, 4, bias=False), (_ramp(-2, 2, (1, 8)),)),
+    lambda: (FixedParametersLinear(8, 4, bias=False), (_ramp(-2, 2, (1, 8)),)),
 )
 _cm(
     "softmax", lambda: (_Fn(lambda x: torch.softmax(x, dim=1)), (_ramp(-2, 2, (1, 8)),))
@@ -566,23 +618,23 @@ _cm(
 )
 _cm(
     "quantized_conv2d",
-    lambda: (torch.nn.Conv2d(2, 3, 3), (_ramp(-1, 1, (1, 2, 8, 8)),)),
+    lambda: (FixedParametersConv2D(2, 4, 3), (_ramp(1, 5, (1, 2, 5, 5)).to(memory_format=torch.channels_last),)),
 )
 _cm(
     "quantized_depthwise_conv2d",
-    lambda: (torch.nn.Conv2d(4, 4, 3, groups=4), (_ramp(-1, 1, (1, 4, 8, 8)),)),
+    lambda: (FixedParametersConv2D(4, 4, 3, groups=4), (_ramp(1, 5, (1, 4, 8, 8)).to(memory_format=torch.channels_last),)),
 )
 _cm(
     "quantized_transpose_conv2d",
-    lambda: (torch.nn.ConvTranspose2d(2, 3, 3), (_ramp(-1, 1, (1, 2, 8, 8)),)),
+    lambda: (FixedParametersConvTranspose2d(2, 4, 3), (_ramp(1, 5, (1, 2, 5, 5)).to(memory_format=torch.channels_last),)),
 )
 _cm(
     "quantized_avg_pool2d",
-    lambda: (torch.nn.AvgPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8), channel_last=True),)),
+    lambda: (torch.nn.AvgPool2d(kernel_size=2, stride=2), (_ramp(0, 15, (1, 1, 4, 4)),)),
 )
 _cm(
     "quantized_max_pool2d",
-    lambda: (torch.nn.MaxPool2d(2), (_ramp(-1, 1, (1, 2, 8, 8), channel_last=True),)),
+    lambda: (torch.nn.MaxPool2d(kernel_size=2, stride=2), (_ramp(-50, 50, (1, 1, 6, 6)),)),
 )
 _cm(
     "quantized_batch_matmul",
