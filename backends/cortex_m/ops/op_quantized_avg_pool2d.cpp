@@ -53,6 +53,29 @@ Tensor& quantized_avg_pool2d_out(
     cmsis_ctx.buf = scratch.mutable_data_ptr<int8_t>();
   }
 
+  // The AoT-exported scratch is sized for the export target's CMSIS-NN path
+  // (MVE needs 0 bytes here); the running core may need more (the DSP path
+  // needs ch * sizeof(int32_t)). Top up from the kernel temp allocator when
+  // short so one .pte runs on every M-profile core.
+  const int32_t required_buffer_bytes = arm_avgpool_s8_get_buffer_size(
+      pool_config.output_dims.w, pool_config.input_dims.c);
+  if (required_buffer_bytes > 0 &&
+      cmsis_ctx.size < static_cast<size_t>(required_buffer_bytes)) {
+    auto temp = context.allocate_temp(required_buffer_bytes);
+    if (!temp.ok()) {
+      ET_LOG(
+          Error,
+          "quantized_avg_pool2d_out: scratch %d B < required %d B and temp"
+          " allocation failed",
+          static_cast<int>(cmsis_ctx.size),
+          static_cast<int>(required_buffer_bytes));
+      context.fail(temp.error());
+      return out;
+    }
+    cmsis_ctx.buf = temp.get();
+    cmsis_ctx.size = static_cast<size_t>(required_buffer_bytes);
+  }
+
 #ifdef CORTEX_M_ENABLE_RUNTIME_CHECKS
   const int32_t runtime_buffer_bytes = arm_avgpool_s8_get_buffer_size(
       pool_config.output_dims.w, pool_config.input_dims.c);

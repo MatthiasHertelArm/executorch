@@ -227,6 +227,31 @@ Tensor& quantized_depthwise_conv2d_out(
     cmsis_context.buf = scratch.mutable_data_ptr<int8_t>();
   }
 
+  // The AoT-exported scratch is sized for the export target's CMSIS-NN path
+  // (MVE: 4*CH_IN_BLOCK_MVE*kw*kh, channel-independent); the running core may
+  // need more (DSP: 2*ch*kw*kh, exceeds the MVE size for ch > 248). Top up
+  // from the kernel temp allocator when short -- without this the DSP kernel
+  // silently overruns the undersized buffer (its guard only checks for NULL).
+  const int32_t required_buffer_bytes =
+      arm_depthwise_conv_wrapper_s8_get_buffer_size(
+          &dw_conv_params, &input_dims, &filter_dims, &output_dims);
+  if (required_buffer_bytes > 0 &&
+      cmsis_context.size < static_cast<size_t>(required_buffer_bytes)) {
+    auto temp = context.allocate_temp(required_buffer_bytes);
+    if (!temp.ok()) {
+      ET_LOG(
+          Error,
+          "quantized_depthwise_conv2d_out: scratch %d B < required %d B and"
+          " temp allocation failed",
+          static_cast<int>(cmsis_context.size),
+          static_cast<int>(required_buffer_bytes));
+      context.fail(temp.error());
+      return out;
+    }
+    cmsis_context.buf = temp.get();
+    cmsis_context.size = static_cast<size_t>(required_buffer_bytes);
+  }
+
 #ifdef CORTEX_M_ENABLE_RUNTIME_CHECKS
   const int32_t runtime_buffer_bytes =
       arm_depthwise_conv_wrapper_s8_get_buffer_size(
