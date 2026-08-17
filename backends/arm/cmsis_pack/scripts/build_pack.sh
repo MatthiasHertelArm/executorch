@@ -80,13 +80,21 @@ echo "=== Step 3: Generating PDSC with operator components ==="
 TEMPLATE="$PACK_ROOT/templates/PyTorch.ExecuTorch.pdsc.tpl"
 PDSC_OUT="$PACK_BUILD/PyTorch.ExecuTorch.pdsc"
 
+# The PDSC release history is derived from the published GitHub releases
+# that carry a .pdsc + .pack asset. Offline builds degrade to an empty
+# history (the entry for the version being built comes from the template).
+python3 "$SCRIPT_DIR/generate_release_history.py" \
+    --exclude-version "$PACK_VERSION" \
+    --output "$OUTPUT_DIR/release_history.xml"
+
 python3 "$SCRIPT_DIR/generate_components.py" \
     --source-dir "$PACK_BUILD" \
     --template "$TEMPLATE" \
     --pdsc-output "$PDSC_OUT" \
     --output "$OUTPUT_DIR/components.xml" \
     --version "$PACK_VERSION" \
-    --date "$(date +%Y-%m-%d)"
+    --date "$(date +%Y-%m-%d)" \
+    --release-history "$OUTPUT_DIR/release_history.xml"
 
 # Step 4: Copy static files (LICENSE, docs)
 echo "=== Step 4: Copying static files ==="

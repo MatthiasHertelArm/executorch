@@ -19,7 +19,12 @@
   <repository type="git">https://github.com/pytorch/executorch.git</repository>
   
   <releases>
-    <release version="%{RELEASE_VERSION}%" date="%{RELEASE_DATE}%">
+    <!-- %{RELEASE_ATTRS}% carries tag/url for release versions, following
+         the publishing convention already used by <url> above (tag
+         v<pack version>, pack attached to that GitHub release). Prerelease
+         builds (-rc/-dev/-nightly) are for local validation and never
+         published, so their entry stays without tag and url. -->
+    <release version="%{RELEASE_VERSION}%" date="%{RELEASE_DATE}%"%{RELEASE_ATTRS}%>
       ExecuTorch %{RELEASE_VERSION}% - PyTorch Edge Runtime
       - Portable operators for Cortex-M
       - Ethos-U NPU backend support

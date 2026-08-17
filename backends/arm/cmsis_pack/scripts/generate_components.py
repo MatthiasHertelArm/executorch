@@ -393,6 +393,11 @@ def main():
     parser.add_argument("--pdsc-output", help="Output path for populated PDSC file")
     parser.add_argument("--version", default="0.6.0", help="Pack version")
     parser.add_argument("--date", help="Release date (YYYY-MM-DD)")
+    parser.add_argument(
+        "--release-history",
+        help="file with pre-rendered <release> entries for %%{HISTORY}%% "
+        "(see generate_release_history.py); omitted -> empty history",
+    )
 
     args = parser.parse_args()
     source_dir = Path(args.source_dir)
@@ -458,10 +463,30 @@ def main():
         release_date = args.date or datetime.date.today().strftime("%Y-%m-%d")
 
         # Replace placeholders
+        history = ""
+        if args.release_history:
+            with open(args.release_history) as f:
+                # The placeholder sits on an indented line of its own; strip
+                # the rendered block's edges so substitution stays tidy.
+                history = f.read().strip()
+
+        # Release versions get the tag and absolute download url of the
+        # GitHub release they will be published under. Prerelease builds
+        # (-rc/-dev/-nightly) exist for local validation only and are never
+        # published, so stamping a release location would be wrong.
+        release_attrs = ""
+        if "-" not in args.version:
+            release_attrs = (
+                f' tag="v{args.version}"'
+                f' url="https://github.com/pytorch/executorch/releases/'
+                f'download/v{args.version}/PyTorch.ExecuTorch.{args.version}.pack"'
+            )
+
         pdsc = template
+        pdsc = pdsc.replace("%{RELEASE_ATTRS}%", release_attrs)
         pdsc = pdsc.replace("%{RELEASE_VERSION}%", args.version)
         pdsc = pdsc.replace("%{RELEASE_DATE}%", release_date)
-        pdsc = pdsc.replace("%{HISTORY}%", "")
+        pdsc = pdsc.replace("%{HISTORY}%", history)
         pdsc = pdsc.replace("%{OPERATOR_CONDITIONS}%", result["conditions"])
         pdsc = pdsc.replace("%{RUNTIME_FILES}%", runtime_files)
         pdsc = pdsc.replace("%{KERNEL_UTILS_FILES}%", kernel_utils_files)
