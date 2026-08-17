@@ -769,6 +769,15 @@ _skip(
     "needs 1.4 AOT lowering (CortexMQuantizer activation LUT); recipe TODO",
 )
 
+# quantized_div landed upstream after the pinned export environment; its
+# aten_to_cortex_m_pass lowering is not available there yet, so the op is
+# build/link covered only until the export env moves forward.
+_skip(
+    "Cortex-M",
+    "quantized_div",
+    "cortex_m::quantized_div lowering not in the export env; recipe TODO",
+)
+
 # Quantized (quantized_decomposed::*) ops need the PT2E quantization flow to be
 # emitted into the graph; a portable float export does not exercise them. They
 # get build/link coverage now; execution recipes are a follow-up.

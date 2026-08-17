@@ -25,6 +25,7 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 from op_guards import (  # type: ignore[import-not-found]  # noqa: E402
+    component_csub,
     discover_components,
 )
 
@@ -194,7 +195,8 @@ def build_cproject(source_dir: Path, ethos_u: bool = False) -> str:
         lines.append(f"    - component: {_CMSIS_NN_COMPONENT}")
     for c in components:
         lines.append(
-            f"    - component: Machine Learning:ExecuTorch Operators:{c.category} {c.name}"
+            "    - component: Machine Learning:ExecuTorch Operators:"
+            f"{component_csub(c.category, c.name)}"
         )
     lines.append(_LINKER_MISC_GROUPS)
     return "\n".join(lines)

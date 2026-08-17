@@ -46,13 +46,34 @@ def test_base_components_present(cproject_text):
 
 def test_selects_every_op_component(cproject_text):
     """Every component op_guards discovers must be selected, and nothing
-    extra.
+    extra. References use the shared Csub naming (incl. abbreviations), so
+    the consumer project cannot drift from the PDSC.
     """
     discovered = {
-        f"{c.category} {c.name}" for c in op_guards.discover_components(REPO_ROOT)
+        op_guards.component_csub(c.category, c.name)
+        for c in op_guards.discover_components(REPO_ROOT)
     }
     assert _selected_op_components(cproject_text) == discovered
     assert len(discovered) > 150  # sanity: the full portable+quantized+cortex_m surface
+
+
+def test_csub_respects_pack_xsd_length_limit(cproject_text):
+    """PACK.xsd caps Csub at 32 chars (packchk M511); every selected component
+    reference must fit, and the known long names must map to their fixed
+    abbreviations.
+    """
+    for ref in _selected_op_components(cproject_text):
+        assert len(ref) <= op_guards.CSUB_MAX_LENGTH, ref
+    assert (
+        op_guards.component_csub("Portable", "max_pool2d_with_indices_backward")
+        == "Portable max_pool2d_indices_bwd"
+    )
+    assert (
+        op_guards.component_csub("Cortex-M", "quantized_depthwise_conv2d")
+        == "Cortex-M quantized_dw_conv2d"
+    )
+    with pytest.raises(ValueError, match="exceeding"):
+        op_guards.component_csub("Portable", "x" * 40)
 
 
 def test_cmsis_nn_added_when_cortex_m_present(cproject_text):

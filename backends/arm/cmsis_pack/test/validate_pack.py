@@ -8,16 +8,29 @@
 Asserts the pack is well-formed before any consumer attempts to build
 against it: a PDSC is present and parses as XML, the runtime + kernel
 registration sources are shipped, no duplicate or leaked-Python
-entries, and every <file name="..."/> in the PDSC resolves to a real
-entry in the archive (or a directory prefix covering one).
+entries, every <file name="..."/> in the PDSC resolves to a real
+entry in the archive (or a directory prefix covering one), and no
+component identity attribute exceeds the PACK.xsd 32-character cap.
+When the CMSIS-Toolbox `packchk` is on PATH, the pack is additionally
+schema-checked with it -- csolution/cbuild parse the PDSC leniently, so
+without packchk a schema violation only surfaces at keil.com ingestion.
 
 """
 
 import argparse
+import shutil
+import subprocess  # nosec  # noqa: B404,S404
 import sys
+import tempfile
 import xml.etree.ElementTree as ET  # nosec  # noqa: B405,S405
 import zipfile
 from collections import Counter
+from pathlib import Path
+
+# PACK.xsd (CsubType / CidPartType): component identity attributes are capped
+# at 32 characters. packchk rejects longer values with error M511.
+_IDENTITY_MAX_LENGTH = 32
+_IDENTITY_ATTRIBUTES = ("Cclass", "Cgroup", "Csub", "Cvariant", "Cvendor")
 
 
 def validate(pack_file: str) -> None:  # noqa: C901
@@ -97,6 +110,24 @@ def validate(pack_file: str) -> None:  # noqa: C901
                 print(f"  {m}")
             sys.exit(1)
 
+        too_long = sorted(
+            {
+                f'{attr}="{value}" ({len(value)} chars)'
+                for element in root.iter()
+                for attr, value in element.attrib.items()
+                if attr in _IDENTITY_ATTRIBUTES
+                and len(value) > _IDENTITY_MAX_LENGTH
+            }
+        )
+        if too_long:
+            print(
+                f"ERROR: {len(too_long)} component identity value(s) exceed "
+                f"the PACK.xsd maxLength of {_IDENTITY_MAX_LENGTH}:"
+            )
+            for entry in too_long[:10]:
+                print(f"  {entry}")
+            sys.exit(1)
+
         size_kb = sum(i.file_size for i in z.infolist()) / 1024
         op_count = content.count('Csub="Portable')
         q_count = content.count('Csub="Quantized')
@@ -104,7 +135,38 @@ def validate(pack_file: str) -> None:  # noqa: C901
         print(f"Portable operator components: {op_count}")
         print(f"Quantized operator components: {q_count}")
 
+    run_packchk(pack_file)
     print("Pack validation passed")
+
+
+def run_packchk(pack_file: str) -> None:
+    """Schema-check the PDSC with the CMSIS-Toolbox packchk, if available.
+
+    packchk validates against PACK.xsd (via Xerces), which none of the build
+    tools do. Absence of the tool is reported but not fatal so the structural
+    checks above still gate environments without a toolbox install.
+    """
+    packchk = shutil.which("packchk")
+    if packchk is None:
+        print("packchk not found on PATH: schema check skipped")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        with zipfile.ZipFile(pack_file, "r") as z:
+            z.extractall(tmp)  # nosec  # noqa: S202 - archive we just built
+        pdsc = next(Path(tmp).glob("*.pdsc"))
+        result = subprocess.run(  # nosec  # noqa: S603
+            [packchk, str(pdsc)], capture_output=True, text=True
+        )
+        summary = [
+            line
+            for line in (result.stdout + result.stderr).splitlines()
+            if "ERROR" in line or "error(s)" in line
+        ]
+        for line in summary[:15]:
+            print(line)
+        if result.returncode != 0:
+            sys.exit(f"packchk FAILED (exit {result.returncode})")
+        print("packchk passed")
 
 
 def main() -> None:

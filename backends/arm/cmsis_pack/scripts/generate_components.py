@@ -26,6 +26,7 @@ import yaml
 
 from op_guards import (  # type: ignore[import-not-found]
     category_to_id,
+    component_csub,
     discover_components,
 )
 
@@ -103,7 +104,7 @@ def generate_operator_component(
 
     define_name = op.guard
 
-    component_xml = f"""    <component Cclass="Machine Learning" Cgroup="ExecuTorch Operators" Csub="{op.category} {op.name}" Cversion="{version_placeholder}" condition="{op.condition_id}">
+    component_xml = f"""    <component Cclass="Machine Learning" Cgroup="ExecuTorch Operators" Csub="{component_csub(op.category, op.name)}" Cversion="{version_placeholder}" condition="{op.condition_id}">
       <description>ExecuTorch {op.category} Operator: {op.name}</description>
       <RTE_Components_h>
         #define {define_name}     /* ExecuTorch op_{op.name} */
