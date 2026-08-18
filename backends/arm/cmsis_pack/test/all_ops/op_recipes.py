@@ -55,6 +55,24 @@ ETHOS_U_SKIPS: dict[tuple[str, str], str] = {
     ("Portable", "select_scatter"): (
         "backend rejects the _to_dim_order_copy introduced by the decomposition"
     ),
+    # TOSA has no int64: the Arm lowering legalizes i64 to i32, which breaks
+    # the ops below in flow-specific ways (verified on FVP_Corstone_SSE-320).
+    ("Portable", "argmax"): (
+        "TOSA argmax returns int32; the embedded eager reference is int64, "
+        "so the output dtype can never match"
+    ),
+    ("Portable", "argmin"): (
+        "TOSA argmin returns int32; the embedded eager reference is int64, "
+        "so the output dtype can never match"
+    ),
+    ("Portable", "scatter"): (
+        "the lowering converts the int64 index tensor to int32, which the "
+        "CPU-fallback portable scatter kernel rejects at execute"
+    ),
+    ("Portable", "scatter_add"): (
+        "the lowering converts the int64 index tensor to int32, which the "
+        "CPU-fallback portable scatter_add kernel rejects at execute"
+    ),
 }
 # Extra shapes for EXISTING components, keyed by (category, variant-name) and
 # carrying the base component name so kernel-presence/arity checks validate
