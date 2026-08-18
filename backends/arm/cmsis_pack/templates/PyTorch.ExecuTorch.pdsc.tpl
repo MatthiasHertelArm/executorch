@@ -47,8 +47,12 @@
 
   <conditions>
     <!-- Toolchain conditions -->
+    <!-- The runtime and portable kernels are plain C/C++, so every
+         Cortex-M profile core qualifies, including the Arm China STAR-MC
+         series; optimized code paths (DSP/Helium) are selected per core by
+         CMSIS-NN at build time. -->
     <condition id="Cortex-M">
-      <description>Cortex-M processor</description>
+      <description>Cortex-M / STAR-MC processor</description>
       <accept Dcore="Cortex-M0"/>
       <accept Dcore="Cortex-M0+"/>
       <accept Dcore="Cortex-M3"/>
@@ -56,8 +60,12 @@
       <accept Dcore="Cortex-M7"/>
       <accept Dcore="Cortex-M23"/>
       <accept Dcore="Cortex-M33"/>
+      <accept Dcore="Cortex-M35P"/>
+      <accept Dcore="Cortex-M52"/>
       <accept Dcore="Cortex-M55"/>
       <accept Dcore="Cortex-M85"/>
+      <accept Dcore="Star-MC1"/>
+      <accept Dcore="Star-MC3"/>
     </condition>
 
     <condition id="GCC">
