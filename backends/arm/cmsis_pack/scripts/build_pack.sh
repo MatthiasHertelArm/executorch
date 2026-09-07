@@ -82,10 +82,12 @@ PDSC_OUT="$PACK_BUILD/PyTorch.ExecuTorch.pdsc"
 
 # The PDSC release history is derived from the published GitHub releases
 # that carry a .pdsc + .pack asset. Offline builds degrade to an empty
-# history (the entry for the version being built comes from the template).
+# history (the entry for the version being built comes from the template);
+# CI release builds set RELEASE_HISTORY_STRICT=1 to fail instead.
 python3 "$SCRIPT_DIR/generate_release_history.py" \
     --exclude-version "$PACK_VERSION" \
-    --output "$OUTPUT_DIR/release_history.xml"
+    --output "$OUTPUT_DIR/release_history.xml" \
+    ${RELEASE_HISTORY_STRICT:+--strict}
 
 python3 "$SCRIPT_DIR/generate_components.py" \
     --source-dir "$PACK_BUILD" \

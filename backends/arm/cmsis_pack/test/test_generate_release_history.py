@@ -110,3 +110,26 @@ def test_rendered_xml_shape():
 
 def test_empty_input_renders_empty():
     assert grh.render_history(grh.pack_releases([], None)) == ""
+
+
+def test_published_two_release_world():
+    """Mirror the live repository state after the 1.4.1 release: both 1.4.0
+    and 1.4.1 carry pack assets, and a 1.5.0 build's history must list them
+    newest-first while excluding the version being built.
+    """
+    live = [
+        _release(
+            "v1.4.0",
+            "2026-08-07T19:06:34Z",
+            ["PyTorch.ExecuTorch.pdsc", "PyTorch.ExecuTorch.1.4.0.pack"],
+        ),
+        _release(
+            "v1.4.1",
+            "2026-08-18T16:37:18Z",
+            ["PyTorch.ExecuTorch.pdsc", "PyTorch.ExecuTorch.1.4.1.pack"],
+        ),
+    ]
+    entries = grh.pack_releases(live, exclude_version="1.5.0")
+    assert [e["version"] for e in entries] == ["1.4.1", "1.4.0"]
+    assert entries[0]["date"] == "2026-08-18"
+    assert entries[0]["tag"] == "v1.4.1"

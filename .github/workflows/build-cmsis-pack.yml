@@ -11,9 +11,10 @@ on:
     # shared runner pool isn't hit by both at the same minute.
     - cron: 0 3 * * *
   release:
-    # Build (and, for non-prerelease, publish) the pack when a GitHub
-    # Release is created. The tag the release points at drives the pack
-    # version via GITHUB_REF below.
+    # Build and validate the pack when a GitHub Release is published; the
+    # tag the release points at drives the pack version via GITHUB_REF
+    # below. Attaching the artifact to the release is a manual maintainer
+    # step (see the note at the end of this file).
     types: [published]
   push:
     branches:
@@ -46,6 +47,9 @@ concurrency:
 jobs:
   build-cmsis-pack:
     name: build-cmsis-pack
+    # The reusable workflow needs pytorch's self-hosted runner pool; skip on
+    # forks (they exercise the same steps via a fork-local workflow instead).
+    if: github.repository == 'pytorch/executorch'
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     permissions:
       id-token: write
@@ -100,6 +104,12 @@ jobs:
         echo "::endgroup::"
 
         echo "::group::Build CMSIS Pack"
+        # Release and nightly builds must fail loudly when the published
+        # release history cannot be fetched, instead of shipping a PDSC with
+        # an empty <releases> history.
+        if [[ "${{ github.event_name }}" == "release" || "${{ github.event_name }}" == "schedule" ]]; then
+          export RELEASE_HISTORY_STRICT=1
+        fi
         backends/arm/cmsis_pack/scripts/build_pack.sh \
           --executorch-root "$(pwd)" \
           --build-dir "${CMAKE_BUILD_DIR}" \
@@ -107,31 +117,21 @@ jobs:
           --output-dir "$(pwd)/artifacts-to-be-uploaded"
         echo "::endgroup::"
 
-        # Structural validation and consumer-build smoke are intentionally
-        # not run in CI yet. See:
-        #   backends/arm/cmsis_pack/test/validate_pack.py    (structural)
-        #   backends/arm/cmsis_pack/test/smoke/run.sh        (cbuild via
-        #                                                     AVH-MLOps)
-        # for the local test drivers.
+        echo "::group::Validate pack"
+        # Structural checks plus PACK.xsd schema validation: validate_pack.py
+        # runs packchk when it is on PATH, so fetch the standalone binary.
+        curl -sSfL -o /tmp/packchk.tbz2 \
+          "https://github.com/Open-CMSIS-Pack/devtools/releases/download/tools%2Fpackchk%2F1.4.5/packchk-1.4.5-linux-amd64.tbz2"
+        mkdir -p /tmp/packchk-bin
+        tar -xjf /tmp/packchk.tbz2 -C /tmp/packchk-bin
+        export PATH="/tmp/packchk-bin:${PATH}"
+        python3 backends/arm/cmsis_pack/test/validate_pack.py \
+          "$(pwd)/artifacts-to-be-uploaded/PyTorch.ExecuTorch.${PACK_VERSION}.pack"
+        echo "::endgroup::"
 
-  # Attach the pack to the GitHub Release when a non-prerelease release is
-  # published. Prereleases still build + validate via the release trigger
-  # but are not published.
-  publish-cmsis-pack:
-    if: github.event_name == 'release' && !github.event.release.prerelease
-    needs: build-cmsis-pack
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download pack artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: cmsis-pack-artifact
-          path: pack-output
-
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: pack-output/*.pack
-          tag_name: ${{ github.ref_name }}
+  # There is intentionally no publish job. The repository's GITHUB_TOKEN can
+  # no longer modify releases (organization policy), so attaching the pack and
+  # its extracted PyTorch.ExecuTorch.pdsc to the GitHub release is a manual
+  # maintainer step: download the cmsis-pack-artifact from the release-tag run
+  # of this workflow (or use a verified deliverable bundle) and upload both
+  # files to the release with the exact tag the PDSC's release entry names.
