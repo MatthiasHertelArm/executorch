@@ -138,11 +138,15 @@ jobs:
         run: |
           # Same gate as build-cmsis-pack.yml: structural checks plus
           # PACK.xsd schema validation via the standalone packchk.
+          # Standalone packchk needs PACK.xsd in ../etc/ relative to its
+          # binary (M218 otherwise); same layout and pin as build-cmsis-pack.yml.
           curl -sSfL -o /tmp/packchk.tbz2 \
             "https://github.com/Open-CMSIS-Pack/devtools/releases/download/tools%2Fpackchk%2F1.4.5/packchk-1.4.5-linux-amd64.tbz2"
-          mkdir -p /tmp/packchk-bin
-          tar -xjf /tmp/packchk.tbz2 -C /tmp/packchk-bin
-          export PATH="/tmp/packchk-bin:${PATH}"
+          mkdir -p /tmp/packchk/bin /tmp/packchk/etc
+          tar -xjf /tmp/packchk.tbz2 -C /tmp/packchk/bin
+          curl -sSfL -o /tmp/packchk/etc/PACK.xsd \
+            "https://raw.githubusercontent.com/Open-CMSIS-Pack/Open-CMSIS-Pack-Spec/4fb6d1b00e725b1ed18de223d30526e76ee9e15e/schema/PACK.xsd"
+          export PATH="/tmp/packchk/bin:${PATH}"
           python3 backends/arm/cmsis_pack/test/validate_pack.py \
             "pack-output/PyTorch.ExecuTorch.${PACK_VERSION}.pack"
 
