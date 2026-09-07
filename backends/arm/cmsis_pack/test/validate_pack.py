@@ -176,15 +176,17 @@ def run_packchk(pack_file: str) -> None:
         result = subprocess.run(  # nosec  # noqa: S603
             [packchk, str(pdsc)], capture_output=True, text=True
         )
-        summary = [
-            line
-            for line in (result.stdout + result.stderr).splitlines()
-            if "ERROR" in line or "error(s)" in line
-        ]
-        for line in summary[:15]:
-            print(line)
+        output = result.stdout + result.stderr
         if result.returncode != 0:
+            # packchk puts the diagnostic text on the lines after each
+            # "*** ERROR Mnnn" header, so a failure needs the full output.
+            print(output)
             sys.exit(f"packchk FAILED (exit {result.returncode})")
+        for line in output.splitlines():
+            # e.g. "Found 0 Error(s) and 207 Warning(s)." -- capitalisation
+            # differs between packchk versions.
+            if "error(s)" in line.lower():
+                print(line.strip())
         print("packchk passed")
 
 
