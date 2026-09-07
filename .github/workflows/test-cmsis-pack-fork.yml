@@ -1,0 +1,145 @@
+# Copyright 2026 Arm Limited and/or its affiliates.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+#
+# Fork-compatible workflow for testing the CMSIS Pack build and release flow.
+# Uses GitHub-hosted runners (no pytorch/test-infra dependency) and mirrors the
+# step sequence of build-cmsis-pack.yml so that flow can be proven on a fork
+# before it runs on the live repository.
+# This file is NOT intended for upstream — use build-cmsis-pack.yml instead.
+
+name: Test CMSIS Pack (Fork)
+
+on:
+  push:
+    branches:
+      - arm/cmsis-pack-integration
+      - arm/cmsis-pack-fork-ci
+      # Release branches (e.g. release/1.4). NOTE: push only triggers when
+      # this workflow file exists ON the pushed branch — a branch mirrored
+      # verbatim from upstream will not have it. For those, use
+      # workflow_dispatch from the default branch with source_ref instead.
+      - release/*
+  release:
+    # Mirror of the upstream release trigger: build + validate the pack for
+    # the released tag. Verifies the version-from-tag derivation and the
+    # validation gate end to end.
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: >-
+          Git ref to build the pack FROM (branch, tag or SHA, e.g.
+          release/1.4 or v1.4.0-rc1). The workflow file itself runs from the
+          branch you dispatch on, so the ref does not need to contain this
+          file. Leave empty to build the dispatched branch.
+        required: false
+        type: string
+      pack_version:
+        description: >-
+          Exact pack version to bake in (e.g. 1.4.0-rc1). Leave empty to
+          derive from the tag (release events) or
+          <version.txt>-nightly-<date>.
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}-${{ inputs.source_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-cmsis-pack:
+    name: build-cmsis-pack
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-none-eabi \
+            cmake \
+            ninja-build \
+            zlib1g-dev
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install pyyaml tomli
+
+      - name: Generate build inputs (schema headers)
+        run: |
+          # The pack takes only the generated FlatBuffers/schema headers from
+          # the build tree (copy_sources.sh), so build exactly those targets.
+          # No full cross-compile: the default 'all' target drags in XNNPACK's
+          # pthread-dependent subprojects, and EXECUTORCH_BUILD_ARM_BAREMETAL
+          # fetches the Ethos-U SDK at configure time — neither is needed.
+          cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=examples/arm/ethos-u-setup/arm-none-eabi-gcc.cmake \
+            -DEXECUTORCH_BUILD_FLATC=ON \
+            -Bcmake-out-arm .
+          cmake --build cmake-out-arm --config Release -j$(nproc) \
+            --target program_schema common_schema scalar_type_schema
+          test -f cmake-out-arm/schema/include/executorch/schema/program_generated.h
+          echo "CMAKE_BUILD_DIR=$(pwd)/cmake-out-arm" >> $GITHUB_ENV
+
+      - name: Determine pack version
+        run: |
+          # Priority mirrors build-cmsis-pack.yml: explicit input, release
+          # tag (leading v stripped), then a dated nightly-style version from
+          # the SOURCE tree's version.txt.
+          if [[ -n "${{ inputs.pack_version || '' }}" ]]; then
+            PACK_VERSION="${{ inputs.pack_version }}"
+          elif [[ "${{ github.event_name }}" == "release" ]]; then
+            PACK_VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            PACK_VERSION="$(cat version.txt | sed 's/a0$//')-nightly-$(date -u +%Y%m%d)"
+          fi
+          echo "Pack version: ${PACK_VERSION}"
+          echo "PACK_VERSION=${PACK_VERSION}" >> $GITHUB_ENV
+
+      - name: Build CMSIS Pack
+        run: |
+          # Release builds fail loudly when the published release history
+          # cannot be fetched, mirroring build-cmsis-pack.yml.
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            export RELEASE_HISTORY_STRICT=1
+          fi
+          export GITHUB_TOKEN="${{ github.token }}"
+          backends/arm/cmsis_pack/scripts/build_pack.sh \
+            --executorch-root "$(pwd)" \
+            --build-dir "${CMAKE_BUILD_DIR}" \
+            --version "${PACK_VERSION}" \
+            --output-dir "$(pwd)/pack-output"
+
+      - name: Validate pack
+        run: |
+          # Same gate as build-cmsis-pack.yml: structural checks plus
+          # PACK.xsd schema validation via the standalone packchk.
+          curl -sSfL -o /tmp/packchk.tbz2 \
+            "https://github.com/Open-CMSIS-Pack/devtools/releases/download/tools%2Fpackchk%2F1.4.5/packchk-1.4.5-linux-amd64.tbz2"
+          mkdir -p /tmp/packchk-bin
+          tar -xjf /tmp/packchk.tbz2 -C /tmp/packchk-bin
+          export PATH="/tmp/packchk-bin:${PATH}"
+          python3 backends/arm/cmsis_pack/test/validate_pack.py \
+            "pack-output/PyTorch.ExecuTorch.${PACK_VERSION}.pack"
+
+      - name: Upload pack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmsis-pack-${{ env.PACK_VERSION }}
+          path: pack-output/*.pack
+          retention-days: 7
