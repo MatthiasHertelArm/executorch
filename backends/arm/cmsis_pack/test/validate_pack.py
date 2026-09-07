@@ -9,8 +9,10 @@ Asserts the pack is well-formed before any consumer attempts to build
 against it: a PDSC is present and parses as XML, the runtime + kernel
 registration sources are shipped, no duplicate or leaked-Python
 entries, every <file name="..."/> in the PDSC resolves to a real
-entry in the archive (or a directory prefix covering one), and no
-component identity attribute exceeds the PACK.xsd 32-character cap.
+entry in the archive (or a directory prefix covering one), no
+component identity attribute exceeds the PACK.xsd 32-character cap,
+and the license metadata (<licenseSets> with an SPDX id and shipped
+license files) is present.
 When the CMSIS-Toolbox `packchk` is on PATH, the pack is additionally
 schema-checked with it -- csolution/cbuild parse the PDSC leniently, so
 without packchk a schema violation only surfaces at keil.com ingestion.
@@ -127,6 +129,23 @@ def validate(pack_file: str) -> None:  # noqa: C901
             for entry in too_long[:10]:
                 print(f"  {entry}")
             sys.exit(1)
+
+        # License metadata: pack indexes and tooling read the SPDX id from
+        # <licenseSets>; every referenced license file must ship in the pack.
+        license_entries = [
+            lic
+            for license_sets in root.iter("licenseSets")
+            for license_set in license_sets.iter("licenseSet")
+            for lic in license_set.iter("license")
+        ]
+        if not license_entries:
+            sys.exit("ERROR: PDSC has no <licenseSets> section")
+        if not any(lic.attrib.get("spdx") for lic in license_entries):
+            sys.exit("ERROR: no licenseSet license carries an spdx identifier")
+        for lic in license_entries:
+            name = lic.attrib.get("name", "")
+            if not exists(name):
+                sys.exit(f"ERROR: licenseSet references missing file: {name}")
 
         size_kb = sum(i.file_size for i in z.infolist()) / 1024
         op_count = content.count('Csub="Portable')

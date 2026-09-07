@@ -15,12 +15,18 @@
   
   <!-- Release tags carry a leading 'v'; without it this path 404s. -->
   <url>https://github.com/pytorch/executorch/releases/download/v%{RELEASE_VERSION}%/</url>
+  <!-- The legacy license element stays for tools predating licenseSets. -->
   <license>LICENSE</license>
+  <licenseSets>
+    <licenseSet id="all" default="true" gating="false">
+      <license name="LICENSE" title="BSD 3-Clause (ExecuTorch)" spdx="BSD-3-Clause"/>
+    </licenseSet>
+  </licenseSets>
   <repository type="git">https://github.com/pytorch/executorch.git</repository>
-  
+
   <releases>
-    <!-- %{RELEASE_ATTRS}% carries tag/url for release versions, following
-         the publishing convention already used by <url> above (tag
+    <!-- The RELEASE_ATTRS placeholder carries tag/url for release versions,
+         following the publishing convention already used by <url> above (tag
          v<pack version>, pack attached to that GitHub release). Prerelease
          builds (-rc/-dev/-nightly) are for local validation and never
          published, so their entry stays without tag and url. -->
