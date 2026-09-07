@@ -76,8 +76,14 @@ jobs:
 
       - name: Install Python dependencies
         run: |
+          # The registration generator parses the NativeFunctions YAML through
+          # torchgen (shipped inside the torch wheel; the PyPI 'torchgen'
+          # package is an empty placeholder) and uses executorch.codegen,
+          # imported from this checkout via src/ (PYTHONPATH below) -- no
+          # executorch wheel needed. CPU torch keeps the download small.
           pip install --upgrade pip setuptools wheel
-          pip install pyyaml tomli
+          pip install pyyaml tomli numpy
+          pip install "torch==2.13.0" --index-url https://download.pytorch.org/whl/cpu
 
       - name: Generate build inputs (schema headers)
         run: |
@@ -119,6 +125,9 @@ jobs:
             export RELEASE_HISTORY_STRICT=1
           fi
           export GITHUB_TOKEN="${{ github.token }}"
+          # executorch.codegen resolves through the tracked src/executorch
+          # symlinks, so codegen always matches the packaged sources.
+          export PYTHONPATH="$(pwd)/src"
           backends/arm/cmsis_pack/scripts/build_pack.sh \
             --executorch-root "$(pwd)" \
             --build-dir "${CMAKE_BUILD_DIR}" \
