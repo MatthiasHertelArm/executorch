@@ -66,6 +66,10 @@ cmake \
   -Bcmake-out-arm .
 cmake --build cmake-out-arm --config Release
 
+For building on windows look at README_WINDOWS.md
+
+Then continue with the steps below.
+
 # 2. Build the pack. --output-dir is where the .pack archive lands
 #    (created if absent); each invocation rewrites this directory.
 backends/arm/cmsis_pack/scripts/build_pack.sh \
@@ -78,6 +82,78 @@ backends/arm/cmsis_pack/scripts/build_pack.sh \
 Adding `-j<N>` to `cmake --build` runs `<N>` jobs in parallel and tends to speed up the build significantly.
 
 The resulting `.pack` file is a zip archive installable via `cpackget add <file>.pack`.
+
+## Using the generated Zephyr module
+
+The same command also generates a self-contained module named `cmsis-executorch`:
+
+```text
+pack-output/
+  PyTorch.ExecuTorch.<version>.pack
+  PyTorch.ExecuTorch.<version>/
+    PyTorch.ExecuTorch.pdsc
+    include/
+    src/
+    zephyr/                    # Integration for an extracted .pack
+  zephyr/
+    module.yml
+    CMakeLists.txt
+    Kconfig
+```
+
+Move the entire output directory to your application project, keeping the
+versioned source directory beside `zephyr/`. Add the **output directory**, rather
+than its `zephyr/` subdirectory, to `ZEPHYR_EXTRA_MODULES` (or
+`EXTRA_ZEPHYR_MODULES` on older Zephyr versions). For example, before
+`find_package(Zephyr ...)` in the application's CMakeLists.txt:
+
+```cmake
+list(APPEND ZEPHYR_EXTRA_MODULES "${CMAKE_CURRENT_SOURCE_DIR}/cmsis-executorch")
+```
+
+Alternatively, extract the `.pack` archive into a directory and add that directory
+as the module. Both layouts use only the pack's collected sources and headers;
+neither needs an ExecuTorch checkout, Python codegen, downloads, or the original
+CMake build directory when building the application. Include public headers as
+usual, for example `<executorch/runtime/executor/program.h>`.
+
+Example `prj.conf` for a Cortex-M target:
+
+```conf
+CONFIG_CPP=y
+CONFIG_STD_CPP17=y
+CONFIG_CMSIS_EXECUTORCH=y
+CONFIG_CMSIS_EXECUTORCH_EXTENSION_TENSOR=y
+CONFIG_CMSIS_EXECUTORCH_KERNEL_REGISTRATION=y
+CONFIG_CMSIS_EXECUTORCH_OP_PORTABLE_ADD=y
+CONFIG_CMSIS_EXECUTORCH_OP_PORTABLE_MUL=y
+```
+
+Every PDSC component has a corresponding `CONFIG_CMSIS_EXECUTORCH_*` option in
+menuconfig, organized into ExecuTorch runtime settings, Portable Operators,
+Quantized Operators, and Cortex-M operators menus.
+Only selected component sources compile. Runtime defaults to enabled; operators
+select Kernel Utils, which selects Runtime. Enable Kernel Registration to register
+the selected operators using the pack's unchanged `RegisterAllKernels.cpp`.
+Its `RTE_Components.h` is generated in the application's build directory.
+The Tensor extension and Ethos-U backend remain optional components.
+
+CMSIS-NN operators require Zephyr's `CONFIG_CMSIS_NN=y` and its CMSIS-NN module.
+Their options enable the required NN library implementation families. The
+Ethos-U backend requires Zephyr's enabled driver (`CONFIG_ARM_ETHOS_U` or
+`CONFIG_ETHOS_U`, depending on the Zephyr version) and its hardware configuration.
+These are external hardware-library dependencies, as they are for the CMSIS Pack.
+The Runtime uses the same weak `minimal.cpp` PAL as the CMSIS component;
+applications can provide strong `et_pal_*` implementations for logging, timing,
+and allocation.
+
+Disable Meta's `CONFIG_EXECUTORCH` when using this replacement. The generated
+CMake stops with an error if both implementations are enabled, independently of
+the order in which Zephyr processes modules.
+
+The metadata templates live in `contributions/zephyr/`. The pack script generates
+Kconfig and CMake directly from the populated PDSC so component names, source
+lists, dependency requirements, and registration guards stay aligned.
 
 ## Local testing
 

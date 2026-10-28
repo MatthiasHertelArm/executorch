@@ -14,6 +14,7 @@ entry in the archive (or a directory prefix covering one).
 """
 
 import argparse
+import re
 import sys
 import xml.etree.ElementTree as ET  # nosec  # noqa: B405,S405
 import zipfile
@@ -96,6 +97,34 @@ def validate(pack_file: str) -> None:  # noqa: C901
             for m in missing[:10]:
                 print(f"  {m}")
             sys.exit(1)
+
+        # An extracted pack must be a self-contained Zephyr module, with the
+        # same component guards and file references as its CMSIS manifest.
+        zephyr_files = {n for n in names_set if n.startswith("zephyr/") and not n.endswith("/")}
+        expected = {"zephyr/module.yml", "zephyr/CMakeLists.txt", "zephyr/Kconfig"}
+        if zephyr_files != expected:
+            sys.exit(f"Unexpected Zephyr module files: {zephyr_files ^ expected}")
+        if "name: cmsis-executorch" not in z.read("zephyr/module.yml").decode():
+            sys.exit("Incorrect Zephyr module name")
+        cmake = z.read("zephyr/CMakeLists.txt").decode()
+        kconfig = z.read("zephyr/Kconfig").decode()
+        if '"${CMAKE_CURRENT_LIST_DIR}/.."' not in cmake:
+            sys.exit("Archived Zephyr module does not reference its own pack root")
+        for component in root.findall("./components/component"):
+            guard = re.search(r"#define\s+(RTE_ML_EXECUTORCH_\w+)", component.findtext("RTE_Components_h", ""))
+            if not guard:
+                sys.exit(f"Missing component guard: {component.attrib}")
+            symbol = guard[1].replace("RTE_ML_", "CMSIS_", 1)
+            if f"config {symbol}\n" not in kconfig or f"if(CONFIG_{symbol})" not in cmake:
+                sys.exit(f"Missing Zephyr component: {symbol}")
+            if f"#define {guard[1]}\\n" not in cmake:
+                sys.exit(f"Missing Zephyr registration guard: {guard[1]}")
+            for file in component.findall("./files/file"):
+                if file.get("condition") == "AC6":
+                    continue
+                ref = file.attrib["name"]
+                if f'"${{CMSIS_EXECUTORCH_PACK_ROOT}}/{ref}"' not in cmake:
+                    sys.exit(f"Missing Zephyr component file: {ref}")
 
         size_kb = sum(i.file_size for i in z.infolist()) / 1024
         op_count = content.count('Csub="Portable')

@@ -1,0 +1,6 @@
+# Copyright 2026 Arm Limited and/or its affiliates.
+# SPDX-License-Identifier: BSD-3-Clause
+name: cmsis-executorch
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig
