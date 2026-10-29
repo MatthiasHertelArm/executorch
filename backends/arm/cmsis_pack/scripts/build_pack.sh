@@ -98,8 +98,16 @@ if [[ -f "$EXECUTORCH_ROOT/LICENSE" ]]; then
     cp "$EXECUTORCH_ROOT/LICENSE" "$PACK_BUILD/"
 fi
 
-# Step 5: Create .pack archive (a zip file)
-echo "=== Step 5: Creating pack file ==="
+# Step 5: Generate Zephyr integration from the same populated manifest.
+# The output directory is a module, and an extracted .pack is also a module.
+echo "=== Step 5: Generating cmsis-executorch Zephyr module ==="
+python3 "$SCRIPT_DIR/generate_zephyr_module.py" \
+    --pdsc "$PDSC_OUT" --output-dir "$PACK_BUILD/zephyr"
+python3 "$SCRIPT_DIR/generate_zephyr_module.py" \
+    --pdsc "$PDSC_OUT" --output-dir "$OUTPUT_DIR/zephyr"
+
+# Step 6: Create .pack archive (a zip file)
+echo "=== Step 6: Creating pack file ==="
 PACK_FILE="$(cd "$OUTPUT_DIR" && pwd)/PyTorch.ExecuTorch.$PACK_VERSION.pack"
 rm -f "$PACK_FILE"
 cd "$PACK_BUILD"
@@ -129,6 +137,7 @@ echo "=============================================="
 echo "Pack build complete!"
 echo "=============================================="
 echo "Pack file: $PACK_FILE"
+echo "Zephyr module: $(dirname "$PACK_FILE") (cmsis-executorch)"
 echo "Pack size: $(du -h "$PACK_FILE" | cut -f1)"
 echo ""
 echo "To install: cpackget add $PACK_FILE"

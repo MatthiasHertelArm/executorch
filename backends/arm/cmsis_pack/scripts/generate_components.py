@@ -191,7 +191,7 @@ def generate_runtime_files(source_dir: Path) -> str:
         dir_path = source_dir / runtime_dir
         if dir_path.exists():
             for cpp_file in sorted(dir_path.rglob("*.cpp")):
-                path_str = str(cpp_file)
+                path_str = cpp_file.as_posix()
                 # Exclude test files and testing utilities
                 if "/test/" in path_str or "_test.cpp" in path_str:
                     continue
@@ -214,13 +214,13 @@ def generate_runtime_files(source_dir: Path) -> str:
                     # arm_zephyr.cpp — ARM Zephyr only
                     if filename not in ["minimal.cpp"]:
                         continue
-                rel_path = cpp_file.relative_to(source_dir)
+                rel_path = cpp_file.relative_to(source_dir).as_posix()
                 files.append(f'        <file category="sourceCpp" name="{rel_path}"/>')
 
     # Add schema files
     if schema_dir.exists():
         for cpp_file in sorted(schema_dir.rglob("*.cpp")):
-            rel_path = cpp_file.relative_to(source_dir)
+            rel_path = cpp_file.relative_to(source_dir).as_posix()
             files.append(f'        <file category="sourceCpp" name="{rel_path}"/>')
 
     return "\n".join(files)
@@ -255,7 +255,7 @@ def generate_shared_kernel_files(source_dir: Path) -> str:
         for cpp_file in sorted(cpu_dir.glob("*.cpp")):
             if cpp_file.name.startswith("op_") or "_test.cpp" in cpp_file.name:
                 continue
-            rel_path = cpp_file.relative_to(source_dir)
+            rel_path = cpp_file.relative_to(source_dir).as_posix()
             files.append(f'        <file category="sourceCpp" name="{rel_path}"/>')
 
     return "\n".join(files)
@@ -291,7 +291,7 @@ def generate_kernel_utils_files(source_dir: Path) -> str:
         for cpp_file in sorted(subdir.glob("*.cpp")):
             if "_test.cpp" in cpp_file.name:
                 continue
-            rel_path = cpp_file.relative_to(source_dir)
+            rel_path = cpp_file.relative_to(source_dir).as_posix()
             files.append(f'        <file category="sourceCpp" name="{rel_path}"/>')
 
     return "\n".join(files)
@@ -337,7 +337,7 @@ def generate_backend_files(
             # Skip excluded patterns
             if any(pattern in cpp_file.name for pattern in exclude_patterns):
                 continue
-            rel_path = cpp_file.relative_to(source_dir)
+            rel_path = cpp_file.relative_to(source_dir).as_posix()
             files.append(f'        <file category="sourceCpp" name="{rel_path}"/>')
 
     return "\n".join(files)
@@ -360,10 +360,10 @@ def generate_extension_tensor_files(source_dir: Path) -> str:
     files = []
     if tensor_dir.exists():
         for cpp_file in sorted(tensor_dir.rglob("*.cpp")):
-            path_str = str(cpp_file)
+            path_str = cpp_file.as_posix()
             if "/test/" in path_str or "_test.cpp" in cpp_file.name:
                 continue
-            rel_path = cpp_file.relative_to(source_dir)
+            rel_path = cpp_file.relative_to(source_dir).as_posix()
             files.append(f'        <file category="sourceCpp" name="{rel_path}"/>')
 
     return "\n".join(files)
