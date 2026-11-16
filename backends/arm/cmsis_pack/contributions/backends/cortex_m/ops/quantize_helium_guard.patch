@@ -1,0 +1,35 @@
+# Pack-local patch for the Cortex-M quantize_per_tensor and
+# dequantize_per_tensor kernels.
+#
+# Their Helium path uses MVE float vectors (float32x4_t, vfmaq_f32,
+# vcvtq_f32_s32) but was enabled on bit 0 of __ARM_FEATURE_MVE, the integer
+# extension. On a core or build with integer-only MVE the files did not
+# compile. Bit 1 is the floating-point extension; without it the scalar loop
+# that follows each Helium block does the work.
+#
+# Applied by backends/arm/cmsis_pack/scripts/copy_sources.sh during pack
+# staging. The upstream files in backends/cortex_m/ops are not modified.
+# Remove this patch once the guards are fixed in the upstream files.
+
+--- a/backends/cortex_m/ops/op_quantize_per_tensor.cpp
++++ b/backends/cortex_m/ops/op_quantize_per_tensor.cpp
+@@ -12,7 +12,7 @@
+ #include <cmath>
+ 
+ // Check for Helium/MVE support
+-#if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE & 1)
++#if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE & 2)
+ #include <arm_mve.h>
+ #define HAS_HELIUM_SIMD 1
+ #endif
+--- a/backends/cortex_m/ops/op_dequantize_per_tensor.cpp
++++ b/backends/cortex_m/ops/op_dequantize_per_tensor.cpp
+@@ -10,7 +10,7 @@
+ #include <cinttypes>
+ 
+ // Check for Helium/MVE support
+-#if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE & 1)
++#if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE & 2)
+ #include <arm_mve.h>
+ #define HAS_HELIUM_SIMD 1
+ #endif

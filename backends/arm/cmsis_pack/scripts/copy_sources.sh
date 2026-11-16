@@ -73,6 +73,19 @@ strip_non_essential() {
     find "$dir" -type d -empty -delete 2>/dev/null || true
 }
 
+# Apply contributions/<path>.patch to the staged sources. Using `patch`
+# rather than overlaying a full pristine copy makes the delta
+# self-documenting and surfaces conflicts loudly if the upstream file
+# changes. The sources in the repository are not modified.
+apply_pack_patch() {
+    local patch_file="${PACK_DIR}/contributions/$1"
+    if [[ ! -f "$patch_file" ]]; then
+        echo "ERROR: pack patch not found at $patch_file" >&2
+        exit 1
+    fi
+    patch --quiet --strip=1 --directory="${PACK_SRC}/src" --input="$patch_file"
+}
+
 # ---------------------------------------------------------------------------
 # Create include / src structure
 # ---------------------------------------------------------------------------
@@ -87,19 +100,12 @@ for d in core executor kernel platform backend; do
 done
 strip_non_essential "${PACK_SRC}/src/runtime"
 
-# Apply pack-local patch to runtime/platform/default/minimal.cpp.
-# Marks each et_pal_* fallback ET_WEAK on its definition; required for
-# GCC 13/14/15 and armclang 6.24 (see the patch header for details).
-# Using `patch` rather than overlaying a full pristine copy makes the
-# delta self-documenting and surfaces conflicts loudly if upstream
-# minimal.cpp changes.
-MINIMAL_PATCH="${PACK_DIR}/contributions/runtime/platform/default/minimal.cpp.patch"
-if [[ ! -f "$MINIMAL_PATCH" ]]; then
-    echo "ERROR: minimal.cpp.patch not found at $MINIMAL_PATCH" >&2
-    exit 1
-fi
-patch --quiet --strip=1 --directory="${PACK_SRC}/src" \
-      --input="$MINIMAL_PATCH"
+# Pack-local patches (each patch header gives the reason):
+# - minimal.cpp: marks each et_pal_* fallback ET_WEAK on its definition;
+#   required for GCC 13/14/15 and armclang 6.24.
+# - tag.h: includes the header that declares size_t.
+apply_pack_patch runtime/platform/default/minimal.cpp.patch
+apply_pack_patch runtime/core/tag.h.patch
 
 cp -r "${PACK_SRC}/src/runtime" "${PACK_SRC}/include/executorch/"
 
@@ -111,6 +117,10 @@ for d in portable quantized prim_ops; do
     fi
 done
 strip_non_essential "${PACK_SRC}/src/kernels"
+
+# Avoids an armclang/LLVM crash on Cortex-M55/M85.
+apply_pack_patch kernels/quantized/cpu/op_quantize.cpp.patch
+
 cp -r "${PACK_SRC}/src/kernels" "${PACK_SRC}/include/executorch/"
 
 echo "  Copying extension sources..."
@@ -205,6 +215,10 @@ for d in ops cortex_m_ops_lib; do
         cp -r "${EXECUTORCH_ROOT}/backends/cortex_m/$d" "${PACK_SRC}/src/backends/cortex_m/"
     fi
 done
+
+# Enables the Helium float path of the quantize/dequantize kernels only
+# when the core has the MVE floating-point extension.
+apply_pack_patch backends/cortex_m/ops/quantize_helium_guard.patch
 
 strip_non_essential "${PACK_SRC}/src/backends"
 cp -r "${PACK_SRC}/src/backends" "${PACK_SRC}/include/executorch/"

@@ -1,0 +1,28 @@
+# Pack-local patch for kernels/quantized/cpu/op_quantize.cpp.
+#
+# Converts the clamped value through int32_t before the cast to the output
+# type. The direct double -> int64_t conversion in the Long instantiation
+# of quantize_val_with_inv_scale (added by #22811) crashes armclang
+# 6.23/6.24 and LLVM 22.1 in the register coalescer at -O1/-Og/-Os on
+# Armv8.1-M cores with double-precision FP (Cortex-M55, Cortex-M85).
+# check_quantize_per_tensor_args only accepts output dtypes whose
+# quantization bounds fit in int32_t, so results are unchanged.
+#
+# Applied by backends/arm/cmsis_pack/scripts/copy_sources.sh during pack
+# staging. The upstream file in kernels/quantized/cpu/op_quantize.cpp is
+# not modified. Remove this patch once the fix is in the upstream file.
+
+--- a/kernels/quantized/cpu/op_quantize.cpp
++++ b/kernels/quantized/cpu/op_quantize.cpp
+@@ -108,7 +108,10 @@
+   const double clamped_value = std::min(
+       static_cast<double>(quant_max),
+       std::max(static_cast<double>(quant_min), qvalue));
+-  return static_cast<T>(clamped_value);
++  // Convert through int32_t: every supported output dtype has bounds within
++  // int32_t, and the direct double -> int64_t conversion of the Long
++  // instantiation crashes armclang 6.23/6.24 and LLVM 22.1 on Armv8.1-M.
++  return static_cast<T>(static_cast<int32_t>(clamped_value));
+ }
+ 
+ template <typename T, typename K>

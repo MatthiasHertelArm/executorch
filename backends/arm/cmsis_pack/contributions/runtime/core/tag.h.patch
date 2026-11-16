@@ -1,0 +1,21 @@
+# Pack-local patch for runtime/core/tag.h.
+#
+# tag.h uses size_t but does not include the header that declares it. It
+# compiles only where <sys/types.h> (via compiler.h) also declares size_t;
+# Zephyr's sys/types.h for Arm Compiler 6 does not, so every consumer had
+# to force-include stddef.h.
+#
+# Applied by backends/arm/cmsis_pack/scripts/copy_sources.sh during pack
+# staging. The upstream file in runtime/core/tag.h is not modified. Remove
+# this patch once the include is in the upstream file.
+
+--- a/runtime/core/tag.h
++++ b/runtime/core/tag.h
+@@ -10,6 +10,7 @@
+ 
+ #include <executorch/runtime/core/defines.h>
+ #include <executorch/runtime/platform/compiler.h>
++#include <stddef.h>
+ #include <cstdint>
+ 
+ // X11 headers via volk define None, so we need to undef it
