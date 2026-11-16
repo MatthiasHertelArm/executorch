@@ -8,6 +8,13 @@ solution:
   cdefault:
   compiler: GCC@14.3.1
 
+  # ARM::CMSIS-NN 8.0.0 does not compile for MVE-F cores (Cortex-M55/M85) in
+  # its default configuration: arm_elementwise_{add,mul}_{f32,f16}.c call
+  # arm_nn_clamp_mve_* helpers that exist only with these enabled.
+  define:
+    - ARM_NN_ENABLE_F32: 1
+    - ARM_NN_ENABLE_F16: 1
+
   packs:
     - pack: ARM::CMSIS@>=6.0.0
     - pack: ARM::Cortex_DFP@>=1.1.0

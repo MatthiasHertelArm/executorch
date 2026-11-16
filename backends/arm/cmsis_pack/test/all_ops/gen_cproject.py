@@ -25,6 +25,7 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 from op_guards import (  # type: ignore[import-not-found]  # noqa: E402
+    component_csub,
     discover_components,
 )
 
@@ -121,10 +122,13 @@ _LINKER_MISC_GROUPS = """
   misc:
     # AtFE/CLANG: force hard-float and -include the random_device shim so the RNG
     # ops build against AtFE's libc++ (_LIBCPP_HAS_RANDOM_DEVICE 0; the shim
-    # self-guards, so it is a no-op for GCC/AC6).
+    # self-guards, so it is a no-op for GCC/AC6). The shim path is
+    # project-qualified because cbuild's compile_macros probe runs the compiler
+    # from the build tmp dir with the misc flags but without add-path, so a
+    # bare header name is not found there.
     - for-compiler: CLANG
       C: [-mcpu=cortex-m85, -mfloat-abi=hard]
-      CPP: [-mcpu=cortex-m85, -mfloat-abi=hard, -include, random_device_shim.h]
+      CPP: [-mcpu=cortex-m85, -mfloat-abi=hard, -include, $ProjectDir()$/random_device_shim.h]
       ASM: [-mcpu=cortex-m85, -mfloat-abi=hard]
       Link: [-mcpu=cortex-m85, -mfloat-abi=hard]
     # GCC: newlib-nano's printf drops %f/%g unless the float formatter is
@@ -132,9 +136,14 @@ _LINKER_MISC_GROUPS = """
     # delta this test reports.
     - for-compiler: GCC
       Link: [-u, _printf_float]
-    # AC6: armlink's RW-data decompressor hardfaults at startup; disable RW
-    # compression so scatter-load does a plain copy.
+    # AC6: armclang assumes finite math by default AND under -ffp-mode=std
+    # (verified: isinf() compiles to `movs r0, #0` in both), which breaks
+    # isinf/isnan and degrades gelu's erf path; the kernels rely on IEEE
+    # inf/NaN semantics, restored by -ffp-mode=full. armlink's RW-data
+    # decompressor additionally hardfaults at startup; disable RW compression
+    # so scatter-load does a plain copy.
     - for-compiler: AC6
+      C-CPP: [-ffp-mode=full]
       Link: [--datacompressor=off]
 
   groups:
@@ -194,7 +203,8 @@ def build_cproject(source_dir: Path, ethos_u: bool = False) -> str:
         lines.append(f"    - component: {_CMSIS_NN_COMPONENT}")
     for c in components:
         lines.append(
-            f"    - component: Machine Learning:ExecuTorch Operators:{c.category} {c.name}"
+            "    - component: Machine Learning:ExecuTorch Operators:"
+            f"{component_csub(c.category, c.name)}"
         )
     lines.append(_LINKER_MISC_GROUPS)
     return "\n".join(lines)

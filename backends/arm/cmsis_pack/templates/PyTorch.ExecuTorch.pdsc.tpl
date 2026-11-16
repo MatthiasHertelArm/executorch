@@ -15,11 +15,22 @@
   
   <!-- Release tags carry a leading 'v'; without it this path 404s. -->
   <url>https://github.com/pytorch/executorch/releases/download/v%{RELEASE_VERSION}%/</url>
+  <!-- The legacy license element stays for tools predating licenseSets. -->
   <license>LICENSE</license>
+  <licenseSets>
+    <licenseSet id="all" default="true" gating="false">
+      <license name="LICENSE" title="BSD 3-Clause (ExecuTorch)" spdx="BSD-3-Clause"/>
+    </licenseSet>
+  </licenseSets>
   <repository type="git">https://github.com/pytorch/executorch.git</repository>
-  
+
   <releases>
-    <release version="%{RELEASE_VERSION}%" date="%{RELEASE_DATE}%">
+    <!-- The RELEASE_ATTRS placeholder carries tag/url for release versions,
+         following the publishing convention already used by <url> above (tag
+         v<pack version>, pack attached to that GitHub release). Prerelease
+         builds (-rc/-dev/-nightly) are for local validation and never
+         published, so their entry stays without tag and url. -->
+    <release version="%{RELEASE_VERSION}%" date="%{RELEASE_DATE}%"%{RELEASE_ATTRS}%>
       ExecuTorch %{RELEASE_VERSION}% - PyTorch Edge Runtime
       - Portable operators for Cortex-M
       - Ethos-U NPU backend support
@@ -42,8 +53,12 @@
 
   <conditions>
     <!-- Toolchain conditions -->
+    <!-- The runtime and portable kernels are plain C/C++, so every
+         Cortex-M profile core qualifies, including the STAR-MC series;
+         optimized code paths (DSP/Helium) are selected per core by
+         CMSIS-NN at build time. -->
     <condition id="Cortex-M">
-      <description>Cortex-M processor</description>
+      <description>Cortex-M / STAR-MC processor</description>
       <accept Dcore="Cortex-M0"/>
       <accept Dcore="Cortex-M0+"/>
       <accept Dcore="Cortex-M3"/>
@@ -51,8 +66,12 @@
       <accept Dcore="Cortex-M7"/>
       <accept Dcore="Cortex-M23"/>
       <accept Dcore="Cortex-M33"/>
+      <accept Dcore="Cortex-M35P"/>
+      <accept Dcore="Cortex-M52"/>
       <accept Dcore="Cortex-M55"/>
       <accept Dcore="Cortex-M85"/>
+      <accept Dcore="Star-MC1"/>
+      <accept Dcore="Star-MC3"/>
     </condition>
 
     <condition id="GCC">
@@ -177,8 +196,8 @@
     <!-- Each per-op component ships its own op_*.cpp from the Cortex-M
          backend ops/ tree. The ones that route through CMSIS-NN add a
          <require condition="CMSIS-NN"/> on top of "Kernel Utils" via
-         their generated condition; quantize/dequantize/softmax are
-         pure-CPU and require only "Kernel Utils". -->
+         their generated condition; quantize/dequantize are pure-CPU
+         and require only "Kernel Utils". -->
 %{CORTEX_M_OPERATOR_COMPONENTS}%
 
     <!-- ==================== Backends ==================== -->
@@ -187,7 +206,7 @@
     <!-- Ships only EthosUBackend_CoreDriver.cpp. The Linux driver variant is
          intentionally not exposed in this pack and may be added later. -->
     <component Cclass="Machine Learning" Cgroup="ExecuTorch" Csub="Backend EthosU" Cversion="%{RELEASE_VERSION}%" condition="Ethos-U">
-      <description>ExecuTorch Ethos-U NPU Backend - Cortex-M host (bare-metal). Hardware acceleration for Ethos-U55/U65</description>
+      <description>ExecuTorch Ethos-U NPU Backend - Cortex-M host (bare-metal). Hardware acceleration for Ethos-U55/U65/U85</description>
       <RTE_Components_h>
         #define RTE_ML_EXECUTORCH_BACKEND_ETHOS_U     /* ExecuTorch Ethos-U Backend (Cortex-M host) */
       </RTE_Components_h>

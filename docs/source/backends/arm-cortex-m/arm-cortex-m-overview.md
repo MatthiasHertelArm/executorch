@@ -54,6 +54,12 @@ CMSIS-NN also supports INT4 weights with INT8 activations (4w8a), INT8 weights w
 
 ## Tutorial
 
+:::{tip}
+This tutorial builds the runtime with CMake. To consume it as CMSIS components from a
+CMSIS-Toolbox project instead, follow the export steps below and then see
+{doc}`/backends/arm-cortex-m/arm-cortex-m-cmsis-pack`.
+:::
+
 ### Prerequisites
 
 Install the ExecuTorch pip package:
@@ -231,3 +237,16 @@ end-to-end on the Corstone-300 FVP:
 (MobileNetV1 with width multiplier 0.25) — the canonical person-detection
 reference model for TinyML.
 :::
+
+## Reference
+
+**→{doc}`/backends/arm-cortex-m/arm-cortex-m-cmsis-pack` — Consuming the runtime and kernels as CMSIS components from a CMSIS-Toolbox project.**
+
+
+```{toctree}
+:maxdepth: 2
+:hidden:
+:caption: Arm Cortex-M Backend
+
+/backends/arm-cortex-m/arm-cortex-m-cmsis-pack
+```

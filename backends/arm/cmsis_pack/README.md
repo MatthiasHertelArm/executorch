@@ -2,6 +2,10 @@
 
 Build scripts and templates for the `PyTorch::ExecuTorch` CMSIS Pack.
 
+This README is developer-facing. For consuming a released pack from a
+CMSIS-Toolbox project, see
+[CMSIS-Pack Integration](https://docs.pytorch.org/executorch/main/backends/arm-cortex-m/arm-cortex-m-cmsis-pack.html).
+
 ## Overview
 
 This is a **source pack**: it ships ExecuTorch runtime + kernel sources
@@ -25,18 +29,23 @@ backends/arm/
 │   ├── templates/
 │   │   └── PyTorch.ExecuTorch.pdsc.tpl # Pack description template
 │   ├── test/
-│   │   ├── validate_pack.py            # Structural validation of a built .pack
-│   │   └── smoke/                      # csolution consumer-build smoke project
-│   │       ├── run.sh                  # Local driver (build + validate + cbuild)
-│   │       ├── smoke.csolution.yml
-│   │       ├── smoke.cproject.yml
-│   │       ├── vcpkg-configuration.json
-│   │       └── main.cpp
+│   │   ├── validate_pack.py            # Structural + schema validation of a built .pack
+│   │   ├── test_generate_register_all_kernels.py
+│   │   ├── test_generate_release_history.py
+│   │   ├── smoke/                      # csolution consumer-build smoke project
+│   │   │   ├── run.sh                  # Local driver (build + validate + cbuild)
+│   │   │   ├── smoke.csolution.yml
+│   │   │   ├── smoke.cproject.yml
+│   │   │   ├── vcpkg-configuration.json
+│   │   │   └── main.cpp
+│   │   └── all_ops/                    # Every operator component in one FVP image
 │   └── scripts/
 │       ├── build_pack.sh               # Main entry point
 │       ├── copy_sources.sh             # Collects sources from repo tree
 │       ├── generate_components.py      # Generates per-operator PDSC components
-│       └── generate_register_all_kernels.py  # Generates #ifdef-guarded registrations
+│       ├── generate_register_all_kernels.py  # Generates #ifdef-guarded registrations
+│       ├── generate_release_history.py # PDSC <releases> from the GitHub releases
+│       └── op_guards.py                # Component discovery, names and guards
 ```
 
 The build/codegen scripts and the test harness are co-located under
@@ -44,13 +53,14 @@ The build/codegen scripts and the test harness are co-located under
 
 ## Components
 
-- **Machine Learning::ExecuTorch::Runtime** — Core runtime (always required)
-- **Machine Learning::ExecuTorch::Kernel Utils** — Kernel registration utilities
-- **Machine Learning::ExecuTorch::Kernel Registration** — Per-op kernel registrations
-- **Machine Learning::ExecuTorch Operators::Portable \*** — Individual portable operators
-- **Machine Learning::ExecuTorch Operators::Quantized \*** — Quantized operators
-- **Machine Learning::ExecuTorch Operators::Cortex-M \*** — CMSIS-NN-optimized Cortex-M operators
-- **Machine Learning::ExecuTorch::Backend EthosU** — Ethos-U NPU backend for Cortex-M host (bare-metal)
+- **Machine Learning:ExecuTorch:Runtime** — Core runtime (always required)
+- **Machine Learning:ExecuTorch:Kernel Utils** — Shared kernel helpers (broadcast, reduce and dtype utilities, unary-ufunc patterns) required by every operator component
+- **Machine Learning:ExecuTorch:Kernel Registration** — Per-op kernel registrations
+- **Machine Learning:ExecuTorch:Extension Tensor** — TensorPtr / make_tensor_ptr utilities
+- **Machine Learning:ExecuTorch Operators:Portable \*** — Individual portable operators
+- **Machine Learning:ExecuTorch Operators:Quantized \*** — Quantized operators
+- **Machine Learning:ExecuTorch Operators:Cortex-M \*** — CMSIS-NN-optimized Cortex-M operators
+- **Machine Learning:ExecuTorch:Backend EthosU** — Ethos-U NPU backend for Cortex-M host (bare-metal)
 
 ## Building locally
 
@@ -82,8 +92,11 @@ The resulting `.pack` file is a zip archive installable via `cpackget add <file>
 ## Local testing
 
 Two scripts under `test/` exercise a freshly built pack the way real
-consumers will. Both run outside CI today; the CI workflow only builds and
-uploads the `.pack` artifact.
+consumers will. Both run outside CI today. The CI workflow builds the
+pack, runs `test/validate_pack.py` (structural checks plus `packchk`
+schema validation) on it and, on a non-prerelease GitHub Release,
+attaches the `.pack` and its `.pdsc` to the release; the consumer-build
+smoke is not run in CI.
 
 ```bash
 # End-to-end: rebuild the pack, validate its structure, then run a
@@ -97,7 +110,10 @@ The driver:
    stale install gets exercised).
 2. Runs `test/validate_pack.py` against the archive: PDSC well-formed,
    runtime + `RegisterAllKernels.cpp` present, no duplicate / leaked
-   `.py` entries, every `<file name="..."/>` reference resolves.
+   `.py` entries, every `<file name="..."/>` reference resolves, no
+   component identity longer than the 32-character schema cap, a
+   `<licenseSets>` entry with an SPDX id whose license file ships in the
+   archive, and a `packchk` run whenever the tool is on PATH.
 3. Spawns `ghcr.io/arm-software/avh-mlops/arm-mlops-docker-licensed-community:latest-arm64`,
    `vcpkg activate`s the toolchain set declared in
    `test/smoke/vcpkg-configuration.json` (cmsis-toolbox + arm-none-eabi-gcc

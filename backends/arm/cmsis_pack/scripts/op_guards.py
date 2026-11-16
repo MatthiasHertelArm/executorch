@@ -58,6 +58,36 @@ def category_to_id(category: str) -> str:
     return category.lower().replace("-", "_").replace(" ", "_")
 
 
+# PACK.xsd caps component identity fields (Csub, Cgroup, Cclass) at 32
+# characters; packchk rejects anything longer (M511). A few operator names
+# exceed the cap once the "<Category> " prefix is added, so those get fixed
+# abbreviations. Only the PDSC Csub and the consumer component references use
+# the abbreviation -- guard macros, recipes and test manifests keep the full
+# source name. This is the single source of truth for the Csub string, shared
+# by generate_components.py and the all-ops gen_cproject.py so the PDSC and
+# its consumers cannot drift.
+CSUB_MAX_LENGTH = 32
+_CSUB_ABBREVIATIONS: dict[str, str] = {
+    "max_pool2d_with_indices_backward": "max_pool2d_indices_bwd",
+    "quantized_depthwise_conv2d": "quantized_dw_conv2d",
+    "quantized_transpose_conv2d": "quantized_tr_conv2d",
+}
+
+
+def component_csub(category: str, name: str) -> str:
+    """The PDSC Csub for an operator component: "<Category> <name>", abbreviated
+    where the full name would exceed the PACK.xsd 32-character limit.
+    """
+    csub = f"{category} {_CSUB_ABBREVIATIONS.get(name, name)}"
+    if len(csub) > CSUB_MAX_LENGTH:
+        raise ValueError(
+            f"Csub '{csub}' is {len(csub)} chars, exceeding the PACK.xsd limit "
+            f"of {CSUB_MAX_LENGTH}; add an abbreviation for '{name}' to "
+            "op_guards._CSUB_ABBREVIATIONS"
+        )
+    return csub
+
+
 def op_to_guard(source_base: str, category: str) -> str:
     """Build the ``RTE_ML_EXECUTORCH_OP_<CATEGORY>_<NAME>`` guard for a source
     base and category.

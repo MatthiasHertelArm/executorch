@@ -11,9 +11,9 @@ on:
     # shared runner pool isn't hit by both at the same minute.
     - cron: 0 3 * * *
   release:
-    # Build (and, for non-prerelease, publish) the pack when a GitHub
-    # Release is created. The tag the release points at drives the pack
-    # version via GITHUB_REF below.
+    # Build, validate and (for non-prerelease) publish the pack when a
+    # GitHub Release is published. The tag the release points at drives
+    # the pack version via GITHUB_REF below.
     types: [published]
   push:
     branches:
@@ -51,6 +51,9 @@ jobs:
   build-cmsis-pack:
     needs: docker-image
     name: build-cmsis-pack
+    # The reusable workflow needs pytorch's self-hosted runner pool, which
+    # forks cannot reach; skip the build there.
+    if: github.repository == 'pytorch/executorch'
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     permissions:
       id-token: write
@@ -105,6 +108,16 @@ jobs:
         echo "::endgroup::"
 
         echo "::group::Build CMSIS Pack"
+        # Release and nightly builds must fail loudly when the published
+        # release history cannot be fetched, instead of shipping a PDSC with
+        # an empty <releases> history.
+        if [[ "${{ github.event_name }}" == "release" || "${{ github.event_name }}" == "schedule" ]]; then
+          export RELEASE_HISTORY_STRICT=1
+        fi
+        # The release history comes from the GitHub releases API; the job token
+        # lifts the unauthenticated rate limit that would otherwise fail strict
+        # builds on a busy runner.
+        export GITHUB_TOKEN="${{ github.token }}"
         backends/arm/cmsis_pack/scripts/build_pack.sh \
           --executorch-root "$(pwd)" \
           --build-dir "${CMAKE_BUILD_DIR}" \
@@ -112,16 +125,35 @@ jobs:
           --output-dir "$(pwd)/artifacts-to-be-uploaded"
         echo "::endgroup::"
 
-        # Structural validation and consumer-build smoke are intentionally
-        # not run in CI yet. See:
-        #   backends/arm/cmsis_pack/test/validate_pack.py    (structural)
-        #   backends/arm/cmsis_pack/test/smoke/run.sh        (cbuild via
-        #                                                     AVH-MLOps)
-        # for the local test drivers.
+        echo "::group::Validate pack"
+        # Structural checks plus PACK.xsd schema validation: validate_pack.py
+        # runs packchk when it is on PATH. The standalone packchk release does
+        # not bundle the schema and looks for it in ../etc/ relative to its
+        # binary (error M218 otherwise), so lay it out as bin/ + etc/ with
+        # PACK.xsd pinned to a spec commit whose schema covers every core the
+        # PDSC names (schema 1.7.56 or later enumerates Cortex-M52 and Star-MC3).
+        curl -sSfL -o /tmp/packchk.tbz2 \
+          "https://github.com/Open-CMSIS-Pack/devtools/releases/download/tools%2Fpackchk%2F1.4.5/packchk-1.4.5-linux-amd64.tbz2"
+        mkdir -p /tmp/packchk/bin /tmp/packchk/etc
+        tar -xjf /tmp/packchk.tbz2 -C /tmp/packchk/bin
+        curl -sSfL -o /tmp/packchk/etc/PACK.xsd \
+          "https://raw.githubusercontent.com/Open-CMSIS-Pack/Open-CMSIS-Pack-Spec/4fb6d1b00e725b1ed18de223d30526e76ee9e15e/schema/PACK.xsd"
+        export PATH="/tmp/packchk/bin:${PATH}"
+        python3 backends/arm/cmsis_pack/test/validate_pack.py \
+          "$(pwd)/artifacts-to-be-uploaded/PyTorch.ExecuTorch.${PACK_VERSION}.pack"
+        echo "::endgroup::"
 
-  # Attach the pack to the GitHub Release when a non-prerelease release is
-  # published. Prereleases still build + validate via the release trigger
-  # but are not published.
+        # The consumer-build smoke (cbuild via AVH-MLOps) is intentionally
+        # not run in CI yet; see backends/arm/cmsis_pack/test/smoke/run.sh
+        # and backends/arm/cmsis_pack/test/all_ops/run.sh for the local
+        # drivers.
+
+  # Attach the validated pack and its PDSC to the GitHub Release when a
+  # non-prerelease release is published. The standalone .pdsc asset is what
+  # the pack index ingests, and generate_release_history.py only lists
+  # releases that carry both assets, so a release without it drops out of
+  # every later pack's <releases> history. Prereleases still build and
+  # validate via the release trigger but are not published.
   publish-cmsis-pack:
     if: github.event_name == 'release' && !github.event.release.prerelease
     needs: build-cmsis-pack
@@ -135,8 +167,16 @@ jobs:
           name: cmsis-pack-artifact
           path: pack-output
 
+      - name: Extract PDSC from the pack
+        run: |
+          set -eux
+          PACK_FILE="$(ls pack-output/*.pack)"
+          unzip -o "${PACK_FILE}" PyTorch.ExecuTorch.pdsc -d pack-output
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: pack-output/*.pack
+          files: |
+            pack-output/*.pack
+            pack-output/PyTorch.ExecuTorch.pdsc
           tag_name: ${{ github.ref_name }}

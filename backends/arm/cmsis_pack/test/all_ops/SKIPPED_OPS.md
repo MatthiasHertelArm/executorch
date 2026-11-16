@@ -2,7 +2,7 @@
 
 This test gives **every** operator the pack ships two kinds of coverage:
 
-- **Build / link** — `gen_cproject.py` selects all 199 operator components, so the
+- **Build / link** — `gen_cproject.py` selects all 204 operator components, so the
   consumer firmware links every op's generated registration, forward declaration and
   kernel source. *No operator is exempt from this.*
 - **Execution** — `generate_test_models.py` turns each op's recipe in `op_recipes.py`
@@ -10,8 +10,9 @@ This test gives **every** operator the pack ships two kinds of coverage:
 
 A **skip** only means an op is not *executed*; it is still build/link-covered. Every skip
 carries a reason (enforced by `test_op_recipes.py::test_no_silent_coverage_gaps`), so
-there are no silent gaps. Current status on the CPU target (Corstone-315): **167 executed
-(incl. 2 shape variants), 34 skipped** of 199 operator components, all passing.
+there are no silent gaps. Current status: **169 executed (incl. 2 shape variants), 37
+skipped** of 204 operator components. The last CPU-target run (Corstone-315, on the v1.5.1
+sources with 199 components and 34 skips) passed all 167 executed operators.
 
 The Ethos-U variant has a separate, weaker status — see
 [Ethos-U variant status](#ethos-u-variant-status) before citing its results.
@@ -136,10 +137,11 @@ recipe needs that exact output shape.
 
 ---
 
-## 9. Complex dtype unsupported on target — `view_as_real_copy`
+## 9. Complex dtype unsupported on target — `view_as_real_copy`, `fft_r2c`
 
-**Why:** needs a `complex64` input; complex dtypes are not supported on the Cortex-M
-portable-lean target.
+**Why:** `view_as_real_copy` needs a `complex64` input and `fft_r2c` produces a
+`complex64` output; complex dtypes are not supported on the Cortex-M portable-lean
+target, and the harness compares real dtypes only.
 
 **Solution:** if/when the target supports complex, add a complex-input recipe; until then
 this is genuinely out of scope and stays build/link-only.
@@ -166,6 +168,35 @@ A `_export_quantized` path (sibling to `_export_portable` / `_export_cortex_m`) 
 `generate_test_models.py` would host this. Wire it via `exporters["Quantized"]`.
 
 **Effort:** medium — one quantized export path + 9 recipes with explicit quant params.
+
+---
+
+## 11. Cortex-M skips — `quantized_activation`, `quantized_div`
+
+**Why:** `quantized_activation` is the LUT-based fused activation (sigmoid/tanh/silu) whose
+CortexMQuantizer lowering the export flow does not emit for the recipes here;
+`quantized_div` has no FVP-verified recipe yet. Both are build/link covered by the all-ops
+image; the skip reasons live in `op_recipes.SKIPS`.
+
+**Solution:** add recipes (a `quantized_mul`-style pair of (1, 8) inputs for `quantized_div`;
+an activation recipe once the quantizer emits the LUT op) and verify on the FVP.
+
+**Effort:** small for `quantized_div`; `quantized_activation` depends on the quantizer.
+
+---
+
+## 12. Decomposed by `to_edge` — `avg_pool1d`
+
+**Why:** the default edge decomposition rewrites `aten.avg_pool1d` as `unsqueeze` +
+`aten.avg_pool2d` + `squeeze`, so a plain recipe exercises the `avg_pool2d` kernel and never
+reaches the pack's `avg_pool1d` component. The kernel-presence check in
+`generate_test_models.py` only guards Cortex-M ops, so that fallback would be silent.
+
+**Solution:** export this one recipe with the op preserved (`EdgeCompileConfig`'s
+`preserve_ops=[torch.ops.aten.avg_pool1d.default]`) and confirm `aten.avg_pool1d.out` in the
+final graph.
+
+**Effort:** small — a per-recipe exporter option in `generate_test_models.py`.
 
 ---
 
@@ -196,13 +227,13 @@ The Docker image used for the consumer build already provides this, so they expo
 
 ## Priority to raise execution coverage
 
-1. **§7 + §8 bespoke recipes** (6 ops) — trivial, immediate wins.
+1. **§7 + §8 bespoke recipes** (6 ops) and **§12** `avg_pool1d` — trivial, immediate wins.
 2. **§1 + §2 structural-assertion mode** (5 ops) — one small runner/manifest feature.
 3. **Cortex-M env** — install `cmsis_nn`; unlocks 16 ops with no new code.
 4. **§10 quantized path** (9 ops) — one quantized export path.
 5. **§6 dim-order** (2 ops), **§5 creation** (5 ops), **§3 data-dependent** (2 ops) —
    need dynamic-shape / dim-order export plumbing.
-6. **§4 backward** (2), **§9 complex** (1) — lowest value / blocked on target support.
+6. **§4 backward** (2), **§9 complex** (2) — lowest value / blocked on target support.
 
 ---
 

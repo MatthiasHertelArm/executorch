@@ -55,6 +55,24 @@ ETHOS_U_SKIPS: dict[tuple[str, str], str] = {
     ("Portable", "select_scatter"): (
         "backend rejects the _to_dim_order_copy introduced by the decomposition"
     ),
+    # TOSA has no int64: the Arm lowering legalizes i64 to i32, which breaks
+    # the ops below in flow-specific ways (verified on FVP_Corstone_SSE-320).
+    ("Portable", "argmax"): (
+        "TOSA argmax returns int32; the embedded eager reference is int64, "
+        "so the output dtype can never match"
+    ),
+    ("Portable", "argmin"): (
+        "TOSA argmin returns int32; the embedded eager reference is int64, "
+        "so the output dtype can never match"
+    ),
+    ("Portable", "scatter"): (
+        "the lowering converts the int64 index tensor to int32, which the "
+        "CPU-fallback portable scatter kernel rejects at execute"
+    ),
+    ("Portable", "scatter_add"): (
+        "the lowering converts the int64 index tensor to int32, which the "
+        "CPU-fallback portable scatter_add kernel rejects at execute"
+    ),
 }
 # Extra shapes for EXISTING components, keyed by (category, variant-name) and
 # carrying the base component name so kernel-presence/arity checks validate
@@ -328,6 +346,7 @@ _red("var_mean", lambda x: torch.var_mean(x, dim=1))
 _red("max", lambda x: tuple(torch.max(x, dim=1)))
 _red("min", lambda x: tuple(torch.min(x, dim=1)))
 _red("cumsum", lambda x: torch.cumsum(x, dim=1))
+_red("cummin", lambda x: tuple(torch.cummin(x, dim=1)))
 _red("softmax", lambda x: torch.softmax(x, dim=1))
 _red("log_softmax", lambda x: torch.log_softmax(x, dim=1))
 
@@ -469,6 +488,13 @@ _portable(
 # --------------------------------------------------------------------------
 # Indexing / gather / scatter
 # --------------------------------------------------------------------------
+_portable(
+    "bucketize",
+    lambda: (
+        _Fn(lambda x: torch.bucketize(x, torch.tensor([0.25, 0.5, 0.75]))),
+        (_ramp(0, 1, (1, 8)),),
+    ),
+)
 _portable(
     "index_select",
     lambda: (
@@ -752,9 +778,13 @@ for _n, _r in {
     "grid_sampler_2d": "recipe TODO (sampler grid setup)",
     "cdist_forward": "recipe TODO",
     "pdist_forward": "recipe TODO",
+    # to_edge's default decomposition rewrites it as unsqueeze + avg_pool2d +
+    # squeeze, so a plain recipe never reaches the avg_pool1d kernel.
+    "avg_pool1d": "decomposed to avg_pool2d by to_edge; needs preserve_ops; recipe TODO",
     "upsample_bicubic2d_aa": "antialiased upsample; recipe TODO",
     "upsample_bilinear2d_aa": "antialiased upsample; recipe TODO",
     "view_as_real_copy": "complex dtype unsupported on target",
+    "fft_r2c": "complex dtype unsupported on target",
     "allclose": "returns scalar bool; ET out-variant shape TODO",
     # Host<->device transfer op: needs a registered DeviceAllocator and a
     # non-CPU device; bare-metal Corstone has neither.
@@ -768,6 +798,14 @@ _skip(
     "Cortex-M",
     "quantized_activation",
     "needs 1.4 AOT lowering (CortexMQuantizer activation LUT); recipe TODO",
+)
+
+# quantized_div has no FVP-verified recipe yet; it stays build/link covered
+# until one is added.
+_skip(
+    "Cortex-M",
+    "quantized_div",
+    "cortex_m::quantized_div recipe TODO (not yet FVP-verified)",
 )
 
 # Quantized (quantized_decomposed::*) ops need the PT2E quantization flow to be
