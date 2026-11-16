@@ -150,7 +150,7 @@ this is genuinely out of scope and stays build/link-only.
 
 ---
 
-## 10. `quantized_decomposed::*` ops — `add`, `choose_qparams`, `dequantize`, `quantize`, `embedding`, `embedding2b`, `embedding4b`, `mixed_linear`, `mixed_mm`
+## 10. `quantized_decomposed::*` ops — `add`, `choose_qparams`, `dequantize`, `embedding`, `embedding2b`, `embedding4b`, `mixed_linear`, `mixed_mm`
 
 **Why:** these kernels (`kernels/quantized/`) are only invoked when the graph contains
 `quantized_decomposed.*` ops, which the **PT2E quantization flow** emits. A plain float
@@ -167,7 +167,8 @@ portable export never produces them, so the float recipe path cannot reach them.
 A `_export_quantized` path (sibling to `_export_portable` / `_export_cortex_m`) in
 `generate_test_models.py` would host this. Wire it via `exporters["Quantized"]`.
 
-**Effort:** medium — one quantized export path + 9 recipes with explicit quant params.
+**Effort:** medium — one quantized export path + 8 recipes with explicit quant params.
+`quantize` already has a recipe that calls the op directly.
 
 ---
 
@@ -230,7 +231,7 @@ The Docker image used for the consumer build already provides this, so they expo
 1. **§7 + §8 bespoke recipes** (6 ops) and **§12** `avg_pool1d` — trivial, immediate wins.
 2. **§1 + §2 structural-assertion mode** (5 ops) — one small runner/manifest feature.
 3. **Cortex-M env** — install `cmsis_nn`; unlocks 16 ops with no new code.
-4. **§10 quantized path** (9 ops) — one quantized export path.
+4. **§10 quantized path** (8 ops) — one quantized export path.
 5. **§6 dim-order** (2 ops), **§5 creation** (5 ops), **§3 data-dependent** (2 ops) —
    need dynamic-shape / dim-order export plumbing.
 6. **§4 backward** (2), **§9 complex** (2) — lowest value / blocked on target support.

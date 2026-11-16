@@ -374,19 +374,21 @@ def _assert_kernel_present(
     forward graph so such fallbacks fail loudly at export time.
 
     """
-    if category != "Cortex-M":
+    namespaces = {"Cortex-M": "cortex_m", "Quantized": "quantized_decomposed"}
+    if category not in namespaces:
         return
-    wanted = f"cortex_m.{op_name}"
+    wanted = f"{namespaces[category]}.{op_name}"
     targets = [
         str(node.target).replace("::", ".")
         for node in program.exported_program("forward").graph_module.graph.nodes
         if node.op == "call_function"
     ]
     if not any(wanted in target for target in targets):
-        cortex_m_targets = sorted({t for t in targets if "cortex_m" in t})
+        namespace = namespaces[category]
+        present = sorted({t for t in targets if namespace in t})
         raise RuntimeError(
-            f"forward graph contains no {wanted} kernel; cortex_m nodes "
-            f"present: {cortex_m_targets or 'none'} (recipe fell back to "
+            f"forward graph contains no {wanted} kernel; {namespace} nodes "
+            f"present: {present or 'none'} (recipe fell back to "
             "float aten kernels?)"
         )
 

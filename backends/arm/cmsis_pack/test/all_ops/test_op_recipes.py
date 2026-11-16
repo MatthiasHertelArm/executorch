@@ -86,5 +86,17 @@ def test_cortex_m_kernel_presence_assertion():
     gen._assert_kernel_present(program, "Cortex-M", "quantized_add")
     with pytest.raises(RuntimeError, match="no cortex_m.quantized_conv2d"):
         gen._assert_kernel_present(program, "Cortex-M", "quantized_conv2d")
-    # Non-Cortex-M categories are exempt.
+    # Categories without a kernel namespace are exempt.
     gen._assert_kernel_present(program, "Portable", "quantized_conv2d")
+
+
+def test_quantized_quantize_recipe_calls_its_kernel():
+    import generate_test_models as gen  # type: ignore[import-not-found]
+
+    recipe = op_recipes.RECIPES[("Quantized", "quantize")]
+    model, inputs = recipe.make()
+    program = gen._export_portable(model, inputs, recipe)
+
+    gen._assert_kernel_present(program, "Quantized", "quantize")
+    with pytest.raises(RuntimeError, match="no quantized_decomposed.dequantize"):
+        gen._assert_kernel_present(program, "Quantized", "dequantize")

@@ -55,6 +55,14 @@ ETHOS_U_SKIPS: dict[tuple[str, str], str] = {
     ("Portable", "select_scatter"): (
         "backend rejects the _to_dim_order_copy introduced by the decomposition"
     ),
+    ("Quantized", "quantize"): (
+        "already a quantized_decomposed op, nothing to delegate; the delegated "
+        "models call this kernel at their delegate inputs"
+    ),
+    # The input only supplies the output shape, so the delegate never reads it
+    # and the Arm backend (1.6) refuses to lower a delegate with an unused input.
+    ("Portable", "fill"): "delegate input unused after lowering; export rejected",
+    ("Portable", "full_like"): "delegate input unused after lowering; export rejected",
     # TOSA has no int64: the Arm lowering legalizes i64 to i32, which breaks
     # the ops below in flow-specific ways (verified on FVP_Corstone_SSE-320).
     ("Portable", "argmax"): (
@@ -743,6 +751,28 @@ _cm(
 
 
 # --------------------------------------------------------------------------
+# Quantized ops (quantized_decomposed::* kernels), called directly with
+# explicit quantization parameters.
+# --------------------------------------------------------------------------
+def _quantize_per_tensor():
+    # Registers the quantized_decomposed ops and their out variants.
+    import executorch.kernels.quantized  # noqa: F401
+
+    return (
+        _Fn(
+            lambda x: torch.ops.quantized_decomposed.quantize_per_tensor(
+                x, 0.05, 3, -128, 127, torch.int8
+            )
+        ),
+        # x / scale spans [-160, 160]: reaches both clamp bounds, no .5 ties.
+        (_ramp(-8, 8, (2, 8)),),
+    )
+
+
+_reg("Quantized", "quantize", _quantize_per_tensor)
+
+
+# --------------------------------------------------------------------------
 # Explicit skips: ops we deliberately do not execute at runtime. They still get
 # build/link coverage from the all-ops cproject; only the .pte/reference step is
 # skipped. Each must give a reason so the gap is documented, not silent.
@@ -820,7 +850,6 @@ for _n in (
     "embedding4b",
     "mixed_linear",
     "mixed_mm",
-    "quantize",
 ):
     _skip(
         "Quantized", _n, "quantized_decomposed op; needs PT2E quant flow (recipe TODO)"
