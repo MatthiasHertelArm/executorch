@@ -13,9 +13,7 @@
   <name>ExecuTorch</name>
   <description overview="Documentation/README.md">ExecuTorch: PyTorch Edge Runtime for on-device AI inference on Arm Cortex-M processors.</description>
   
-  <!-- Release tags carry a leading 'v'; without it this path 404s. -->
   <url>https://github.com/pytorch/executorch/releases/download/v%{RELEASE_VERSION}%/</url>
-  <!-- The legacy license element stays for tools predating licenseSets. -->
   <license>LICENSE</license>
   <licenseSets>
     <licenseSet id="all" default="true" gating="false">
@@ -25,11 +23,6 @@
   <repository type="git">https://github.com/pytorch/executorch.git</repository>
 
   <releases>
-    <!-- The RELEASE_ATTRS placeholder carries tag/url for release versions,
-         following the publishing convention already used by <url> above (tag
-         v<pack version>, pack attached to that GitHub release). Prerelease
-         builds (-rc/-dev/-nightly) are for local validation and never
-         published, so their entry stays without tag and url. -->
     <release version="%{RELEASE_VERSION}%" date="%{RELEASE_DATE}%"%{RELEASE_ATTRS}%>
       ExecuTorch %{RELEASE_VERSION}% - PyTorch Edge Runtime
       - Portable operators for Cortex-M
@@ -53,10 +46,6 @@
 
   <conditions>
     <!-- Toolchain conditions -->
-    <!-- The runtime and portable kernels are plain C/C++, so every
-         Cortex-M profile core qualifies, including the STAR-MC series;
-         optimized code paths (DSP/Helium) are selected per core by
-         CMSIS-NN at build time. -->
     <condition id="Cortex-M">
       <description>Cortex-M / STAR-MC processor</description>
       <accept Dcore="Cortex-M0"/>
@@ -138,11 +127,6 @@
       <files>
 %{RUNTIME_FILES}%
         <file category="include" name="include/"/>
-        <!-- AC6 sysroot has no <sys/types.h>; runtime/platform/compiler.h
-             includes it unconditionally on non-MSVC. The shim under
-             armclang_shims/sys/types.h forwards to #include_next on
-             GCC/CLANG (which both ship the real header) and supplies
-             ssize_t directly under AC6. -->
         <file category="include" name="armclang_shims/" condition="AC6"/>
       </files>
     </component>
@@ -170,12 +154,6 @@
     </component>
 
     <!-- ==================== Kernel Registration ==================== -->
-    <!-- 
-      This component provides unified kernel registration for all operators.
-      Each operator registration is guarded by #ifdef RTE_ML_EXECUTORCH_OP_<NAME>,
-      which is defined by the corresponding operator component.
-      This allows selective registration based on which operators are selected.
-    -->
     <component Cclass="Machine Learning" Cgroup="ExecuTorch" Csub="Kernel Registration" Cversion="%{RELEASE_VERSION}%" condition="Kernel Utils">
       <description>ExecuTorch Kernel Registration - Registers all selected operators</description>
       <RTE_Components_h>
@@ -193,18 +171,11 @@
 %{QUANTIZED_OPERATOR_COMPONENTS}%
 
     <!-- ==================== Cortex-M Operators ==================== -->
-    <!-- Each per-op component ships its own op_*.cpp from the Cortex-M
-         backend ops/ tree. The ones that route through CMSIS-NN add a
-         <require condition="CMSIS-NN"/> on top of "Kernel Utils" via
-         their generated condition; quantize/dequantize are pure-CPU
-         and require only "Kernel Utils". -->
 %{CORTEX_M_OPERATOR_COMPONENTS}%
 
     <!-- ==================== Backends ==================== -->
 
     <!-- Ethos-U Backend (core driver, bare-metal) -->
-    <!-- Ships only EthosUBackend_CoreDriver.cpp. The Linux driver variant is
-         intentionally not exposed in this pack and may be added later. -->
     <component Cclass="Machine Learning" Cgroup="ExecuTorch" Csub="Backend EthosU" Cversion="%{RELEASE_VERSION}%" condition="Ethos-U">
       <description>ExecuTorch Ethos-U NPU Backend - Cortex-M host (bare-metal). Hardware acceleration for Ethos-U55/U65/U85</description>
       <RTE_Components_h>
