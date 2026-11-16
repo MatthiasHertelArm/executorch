@@ -24,10 +24,9 @@
 
   <releases>
     <release version="%{RELEASE_VERSION}%" date="%{RELEASE_DATE}%"%{RELEASE_ATTRS}%>
-      ExecuTorch %{RELEASE_VERSION}% - PyTorch Edge Runtime
-      - Portable operators for Cortex-M
-      - Ethos-U NPU backend support
-      - Cortex-M optimized kernels
+      Add Zephyr integration folder; use generation script to generate the files.
+      Apply fix for AC6 crash in op_quantize.cpp.
+      Apply fix &lt;stddef.h&gt;/&lt;cstddef&gt; in tag.h; remove the -include stddef.h workaround.
     </release>
     %{HISTORY}%
   </releases>

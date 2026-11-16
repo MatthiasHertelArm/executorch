@@ -808,9 +808,6 @@ for _n, _r in {
     "grid_sampler_2d": "recipe TODO (sampler grid setup)",
     "cdist_forward": "recipe TODO",
     "pdist_forward": "recipe TODO",
-    # to_edge's default decomposition rewrites it as unsqueeze + avg_pool2d +
-    # squeeze, so a plain recipe never reaches the avg_pool1d kernel.
-    "avg_pool1d": "decomposed to avg_pool2d by to_edge; needs preserve_ops; recipe TODO",
     "upsample_bicubic2d_aa": "antialiased upsample; recipe TODO",
     "upsample_bilinear2d_aa": "antialiased upsample; recipe TODO",
     "view_as_real_copy": "complex dtype unsupported on target",
